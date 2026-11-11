@@ -15,6 +15,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.3.4** (versionCode 7): the Air shelf shows the Settings icon instead of a chevron, and its dot is green only while AirBuzz is on and has reached the Air (grey before, when off, or paused). Switches are filled with the accent colour when on.
 - **0.3.5** (versionCode 8): the Pause sheet's last option is "Turn off" instead of "Until I turn it back on": it switches AirBuzz off, so nothing buzzes, not even chosen callers, and Home says Off (brief decision 37). Timed pauses still let chosen callers ring.
 - **0.4** (versionCode 9): onboarding on first launch (brief decision 39): seven steps (Welcome, Link your Air, Keep AirBuzz running, Notification access, Who can ring, Which apps, Feel it) that resume until done; existing installs skip it. The pebble drawing of the Air on Test buzz, the Home shelf and onboarding (decision 38). Settings has "Show onboarding again" for testing. Rule blanks: the words share the sentence's baseline and the arrow centres on the lowercase letters.
+- **0.4.1** (versionCode 10): onboarding keeps its main button at the bottom of the screen; a long step, such as a long app list, scrolls above it, with a hairline over the button while more is below.
 
 ## What it does
 
