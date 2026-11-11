@@ -3,6 +3,7 @@ package com.davort.airbuzz.service
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.Person
+import android.content.ComponentName
 import android.os.Build
 import android.os.PowerManager
 import android.service.notification.NotificationListenerService
@@ -27,7 +28,7 @@ class AlertListener : NotificationListenerService() {
         when (callState(n)) {
             CallState.INCOMING -> {
                 if (!ringing.add(sbn.key)) return
-                engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(n), moment())
+                engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(n), moment(), sbn.postTime)
                 return
             }
             CallState.OTHER -> {
@@ -43,12 +44,19 @@ class AlertListener : NotificationListenerService() {
         val seen = lastText.put(sbn.key, text)
         if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
         if (lastText.size > 500) lastText.clear()
-        engine.onMessage(sbn.packageName, appLabel(sbn.packageName), chatName(n), moment())
+        engine.onMessage(sbn.packageName, appLabel(sbn.packageName), chatName(n), moment(), sbn.postTime)
     }
 
     override fun onListenerConnected() { engine.note("Notification listener connected") }
 
-    override fun onListenerDisconnected() { engine.note("Notification listener disconnected") }
+    /**
+     * Android unbinds a listener when the user turns its access off, and some phone makers' battery savers do it on
+     * their own. Ask to be bound again; Android ignores this while access is off.
+     */
+    override fun onListenerDisconnected() {
+        engine.note("Notification listener disconnected; asking Android to reconnect it")
+        requestRebind(ComponentName(this, AlertListener::class.java))
+    }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         lastText -= sbn.key

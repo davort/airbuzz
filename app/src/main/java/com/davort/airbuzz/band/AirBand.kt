@@ -31,6 +31,7 @@ import com.fitbit.goldengate.bindings.stack.StackEvent
 import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
 import java.util.ArrayDeque
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -143,6 +144,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var endpoint: CoapEndpoint? = null
 
     private var quietWait: QuietWait? = null
+    private var quietPackets = 0
+    private val traffic = HealthTraffic()
     private var handshakeAttempts = 0
     private var sessionStarted = false
     private var handshakeDeadline: Runnable? = null
@@ -189,6 +192,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         phases.clear()
         handshakeAttempts = 0
         sessionStarted = false
+        quietPackets = 0
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
         main.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS)
         val open = gatt
@@ -311,7 +315,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val now = SystemClock.elapsedRealtime()
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
-        if (rxSource != null) sessionRx++
+        if (rxSource != null) sessionRx++ else traffic.record(now, packet.size)?.let(log)
         quietWait?.record(now, packet.size)
         rxSource?.receiveData(packet)?.subscribe({}, { fail("Receive failed: ${it.message}") })?.let(disposables::add)
     }
@@ -359,6 +363,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     main.postDelayed(this, 100)
                 } else {
                     quietWait = null
+                    quietPackets = wait.packets
                     mark("quiet")
                     startSession()
                 }
@@ -549,6 +554,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         command = null
         main.removeCallbacks(connectTimeout)
         log(if (ok) message else "Failed: $message")
+        log(stepsLine())
         val result = {
             BandResult(ok, message, firstBuzzAt?.let { it - startedAt }, SystemClock.elapsedRealtime() - startedAt,
                 taps, handshakeAttempts, wrongKeys, lostRaces,
@@ -561,6 +567,14 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             end()
             done(result())
         }
+    }
+
+    /** One line with the command's timings, for the step log: Test buzz shows them, calls and messages didn't. */
+    private fun stepsLine(): String = buildString {
+        append("Steps on the ").append(if (fellBack) "open link, then a new connection" else if (usedOpenLink) "open link" else "new connection").append(": ")
+        append(phases.entries.joinToString(", ") { "${it.key} ${it.value} ms" }.ifEmpty { "none" })
+        append("; $handshakeAttempts handshake${if (handshakeAttempts == 1) "" else "s"}, $wrongKeys wrong key${if (wrongKeys == 1) "" else "s"}, ")
+        append("$lostRaces lost race${if (lostRaces == 1) "" else "s"}; $quietPackets packets heard while waiting for quiet")
     }
 
     /** Rebuilds the stack with a resolver that refuses every key and waits for the band to resend its Gattlink session. */
@@ -614,6 +628,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     }
 
     private fun closeTransport() {
+        traffic.close(SystemClock.elapsedRealtime())?.let(log)
         handshakeDeadline?.let(main::removeCallbacks)
         handshakeDeadline = null
         silenceCheck?.let(main::removeCallbacks)
@@ -656,5 +671,59 @@ class QuietWait(private val startedAt: Long) {
         while (recent.isNotEmpty() && now - recent.first().first > 1_200) recent.removeFirst()
         val busy = recent.sumOf { it.second } >= 400
         return busy || elapsed < 700
+    }
+}
+
+/**
+ * Sums Google Health's traffic on the channel while AirBuzz has no session of its own, one step-log line per
+ * [REPORT_MS], so a "Google Health is syncing" threshold can be set from real days on the phone. Idle traffic is not
+ * zero: test app 0.4 heard 43 kB in 3 idle minutes. [record] and [close] return the line to log, if one is due.
+ */
+class HealthTraffic {
+    private var since = 0L
+    private var packets = 0
+    private var bytes = 0L
+    private var bucketStart = 0L
+    private var bucketBytes = 0
+    private var busiest = 0
+
+    fun record(now: Long, size: Int): String? {
+        if (packets == 0) since = now
+        if (packets == 0 || now - bucketStart >= BUCKET_MS) {
+            busiest = maxOf(busiest, bucketBytes)
+            bucketStart = now
+            bucketBytes = 0
+        }
+        bucketBytes += size
+        packets++
+        bytes += size
+        return if (now - since >= REPORT_MS) report(now) else null
+    }
+
+    /** The link closed. A link that lived for one command carried only its quiet wait, which the steps line counts. */
+    fun close(now: Long): String? {
+        if (packets > 0 && now - since >= MIN_REPORT_MS) return report(now)
+        reset()
+        return null
+    }
+
+    private fun report(now: Long): String {
+        val line = String.format(Locale.ROOT, "Google Health traffic: %d packets, %.1f kB in %.1f min; busiest 10 s %.1f kB",
+            packets, bytes / 1000.0, (now - since) / 60_000.0, maxOf(busiest, bucketBytes) / 1000.0)
+        reset()
+        return line
+    }
+
+    private fun reset() {
+        packets = 0
+        bytes = 0
+        bucketBytes = 0
+        busiest = 0
+    }
+
+    companion object {
+        const val REPORT_MS = 5 * 60_000L
+        const val BUCKET_MS = 10_000L
+        const val MIN_REPORT_MS = 60_000L
     }
 }

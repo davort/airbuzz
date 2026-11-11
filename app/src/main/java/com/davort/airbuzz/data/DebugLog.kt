@@ -31,6 +31,6 @@ class DebugLog(private val file: File) {
     private fun load(): List<String> = runCatching { file.readLines().filter { it.isNotBlank() }.takeLast(KEEP) }.getOrDefault(emptyList())
 
     companion object {
-        const val KEEP = 500
+        const val KEEP = 1000
     }
 }

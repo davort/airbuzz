@@ -1,7 +1,11 @@
 package com.davort.airbuzz
 
+import android.app.ActivityManager
 import android.app.Application
+import android.app.ApplicationExitInfo
+import android.app.ApplicationStartInfo
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -25,8 +29,10 @@ import com.davort.airbuzz.rules.Settings
 import com.davort.airbuzz.service.Notifications
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 class AirBuzzApp : Application() {
@@ -37,6 +43,49 @@ class AirBuzzApp : Application() {
         super.onCreate()
         Notifications.createChannels(this)
         engine = Engine(this)
+        engine.note(startLine())
+    }
+
+    /**
+     * Why Android started AirBuzz now and why it stopped it last time, so the step log shows whether the phone ends
+     * AirBuzz in the background. Phone makers' battery savers often add their own description.
+     */
+    private fun startLine(): String {
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+        val am = getSystemService(ActivityManager::class.java)
+        val started = if (Build.VERSION.SDK_INT >= 35) runCatching {
+            am.getHistoricalProcessStartReasons(1).firstOrNull()?.let { " by ${startReason(it.reason)}" }
+        }.getOrNull() else null
+        val last = if (Build.VERSION.SDK_INT >= 30) runCatching { am.getHistoricalProcessExitReasons(null, 0, 1).firstOrNull() }.getOrNull() else null
+        val stopped = last?.let {
+            val where = if (it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE) "on screen" else "in the background"
+            " Last stopped ${SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT).format(Date(it.timestamp))} $where: " +
+                exitReason(it.reason) + (it.description?.takeIf(String::isNotBlank)?.let { d -> " ($d)" } ?: "")
+        } ?: ""
+        return "AirBuzz $version started${started ?: ""}.$stopped"
+    }
+
+    private fun startReason(reason: Int) = when (reason) {
+        ApplicationStartInfo.START_REASON_SERVICE -> "a service (the notification listener)"
+        ApplicationStartInfo.START_REASON_LAUNCHER, ApplicationStartInfo.START_REASON_LAUNCHER_RECENTS -> "opening the app"
+        ApplicationStartInfo.START_REASON_BROADCAST -> "a broadcast"
+        ApplicationStartInfo.START_REASON_BOOT_COMPLETE -> "the phone starting"
+        ApplicationStartInfo.START_REASON_START_ACTIVITY -> "a screen opening"
+        else -> "reason $reason"
+    }
+
+    private fun exitReason(reason: Int) = when (reason) {
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "stopped by the user, an update or a reinstall"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "force-stopped"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "the phone needed memory"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "used too much battery or CPU"
+        ApplicationExitInfo.REASON_OTHER -> "ended by the system"
+        ApplicationExitInfo.REASON_SIGNALED -> "killed"
+        ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE -> "crashed"
+        ApplicationExitInfo.REASON_ANR -> "not responding"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "a permission changed"
+        ApplicationExitInfo.REASON_EXIT_SELF -> "exited"
+        else -> "reason $reason"
     }
 }
 
@@ -77,8 +126,23 @@ class Engine(private val app: Context) {
     private val testState = MutableStateFlow<TestRun?>(null)
     val test: StateFlow<TestRun?> = testState
 
-    /** [giveUpAt] (elapsed realtime) is how long a failed job may be retried; 0 means never, as for Test buzz. */
-    private class Job(val cmd: BandCommand, val ringKey: String? = null, val giveUpAt: Long = 0L, val buzzed: () -> Unit = {}, val done: (BandResult) -> Unit)
+    /**
+     * [giveUpAt] (elapsed realtime) is how long a failed job may be retried; 0 means never, as for Test buzz.
+     * [tries] counts the band runs so far, so a buzz that needed retries says so in the step log.
+     */
+    private class Job(
+        val cmd: BandCommand,
+        val ringKey: String? = null,
+        val giveUpAt: Long = 0L,
+        /** What the alert was, such as "call", for the step log's timing line; null for Test buzz. */
+        val what: String? = null,
+        /** Elapsed realtime when the alert reached AirBuzz. */
+        val alertAt: Long = 0L,
+        val buzzed: () -> Unit = {},
+        val done: (BandResult) -> Unit,
+    ) {
+        var tries = 0
+    }
 
     private val queue = ArrayDeque<Job>()
     private var running: Job? = null
@@ -103,11 +167,12 @@ class Engine(private val app: Context) {
     // Calls
 
     /** An incoming call notification from [pkg], identified by its notification [key]. */
-    fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment) {
+    fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment, postedAt: Long) {
         if (running?.ringKey == key || queue.any { it.ringKey == key } || waiting.any { it.ringKey == key }) return
         val who = caller.name ?: caller.number ?: "Unknown caller"
         val o = Rules.decideCall(caller, settings, moment, region)
-        note("Call from $appLabel (${if (caller.number != null) "number" else if (caller.name != null) "name only" else "no caller ID"}): ${outcome(o)}")
+        note("Call from $appLabel (${if (caller.number != null) "number" else if (caller.name != null) "name only" else "no caller ID"}" +
+            "${posted(moment, postedAt)}): ${outcome(o)}")
         when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
             else -> {
@@ -116,12 +181,14 @@ class Engine(private val app: Context) {
                 bandState.value = bandState.value.copy(ringingWho = who)
                 Notifications.showRinging(app, who)
                 val start = SystemClock.elapsedRealtime()
+                var latency: Long? = null
                 // A ring goes ahead of queued message taps.
-                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS) { r ->
+                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS, what = "call",
+                    alertAt = start, buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     Notifications.cancelRinging(app)
                     bandState.value = bandState.value.copy(ringingWho = null)
                     log.updateLast({ it.time == entry.time && it.kind == Kind.CALL }) {
-                        if (r.taps > 0) it.copy(rangMs = SystemClock.elapsedRealtime() - start, latencyMs = r.firstBuzzMs)
+                        if (r.taps > 0) it.copy(rangMs = SystemClock.elapsedRealtime() - start, latencyMs = latency)
                         else if (r.ok) it.copy(result = Result.SKIPPED, reason = "answered before the Air was reached")
                         else it.copy(result = Result.FAILED, reason = r.message)
                     }
@@ -149,9 +216,9 @@ class Engine(private val app: Context) {
 
     // Messages
 
-    fun onMessage(pkg: String, appLabel: String, who: String?, moment: Moment) {
+    fun onMessage(pkg: String, appLabel: String, who: String?, moment: Moment, postedAt: Long) {
         val o = Rules.decideMessage(pkg, settings, moment, lastBuzzByApp[pkg])
-        note("Message from $appLabel: ${outcome(o)}")
+        note("Message from $appLabel${if (o is Outcome.Skip) "" else " (${posted(moment, postedAt).removePrefix(", ")})"}: ${outcome(o)}")
         when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.SKIPPED, o.reason))
             Outcome.Merge -> {
@@ -164,10 +231,12 @@ class Engine(private val app: Context) {
                 lastBuzzByApp[pkg] = moment.nowMs
                 val entry = Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.BUZZED)
                 log.add(entry)
-                val giveUpAt = SystemClock.elapsedRealtime() + MESSAGE_RETRY_FOR_MS
-                queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength), giveUpAt = giveUpAt) { r ->
+                val start = SystemClock.elapsedRealtime()
+                var latency: Long? = null
+                queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength), giveUpAt = start + MESSAGE_RETRY_FOR_MS,
+                    what = "$appLabel message", alertAt = start, buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     log.updateLast({ it.time == entry.time && it.pkg == pkg }) {
-                        if (r.taps > 0) it.copy(latencyMs = r.firstBuzzMs) else it.copy(result = Result.FAILED, reason = r.message)
+                        if (r.taps > 0) it.copy(latencyMs = latency) else it.copy(result = Result.FAILED, reason = r.message)
                     }
                 })
                 pump()
@@ -209,7 +278,14 @@ class Engine(private val app: Context) {
         running = job
         bandState.value = bandState.value.copy(busy = true)
         band.keepLinkOpen = settings.enabled
-        band.run(job.cmd, job.buzzed) { r ->
+        job.tries++
+        band.run(job.cmd, {
+            if (job.what != null) {
+                val after = SystemClock.elapsedRealtime() - job.alertAt
+                note("First buzz ${seconds(after)} after the ${job.what} arrived" + if (job.tries > 1) ", on try ${job.tries}" else "")
+            }
+            job.buzzed()
+        }) { r ->
             running = null
             val failed = !r.ok && r.taps == 0
             // A buzz that lost the Air to Google Health is tried again a little later rather than dropped.
@@ -248,6 +324,11 @@ class Engine(private val app: Context) {
         Log.i(TAG, line)
         debug.add(line)
     }
+
+    /** How long Android took to hand the notification to AirBuzz, which a buzz's timing doesn't include. */
+    private fun posted(moment: Moment, postedAt: Long) = ", posted ${seconds(moment.nowMs - postedAt)} before"
+
+    private fun seconds(ms: Long) = String.format(Locale.ROOT, "%.1f s", ms / 1000.0)
 
     private fun outcome(o: Outcome) = when (o) {
         Outcome.Buzz -> "buzz"
