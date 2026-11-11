@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Prepares an Amp orb to build AirBuzz: JDK, Android SDK with the pinned NDK and CMake,
+# the Golden Gate submodules, and a warm Gradle cache. Idempotent; a warm rerun skips downloads.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+android_home="$HOME/Android/Sdk"
+java_home="/usr/lib/jvm/java-21-openjdk-amd64"
+cmdline_tools_zip="commandlinetools-linux-16111833_latest.zip"
+# Keep in step with app/ and goldengate/ (compileSdk, ndkVersion, cmake version, AGP's default build-tools).
+sdk_packages=(
+  "platform-tools"
+  "platforms;android-35"
+  "build-tools;34.0.0"
+  "ndk;27.2.12479018"
+  "cmake;3.22.1"
+)
+
+step() { echo "==> $* ($(date +%T))"; }
+SECONDS=0
+
+step "System packages"
+missing=()
+for pkg in openjdk-21-jdk-headless unzip; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+done
+if ((${#missing[@]})); then
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+fi
+export JAVA_HOME="$java_home"
+
+step "Android command-line tools"
+sdkmanager="$android_home/cmdline-tools/latest/bin/sdkmanager"
+if [[ ! -x "$sdkmanager" ]]; then
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://dl.google.com/android/repository/$cmdline_tools_zip" -o "$tmp/tools.zip"
+  unzip -q "$tmp/tools.zip" -d "$tmp"
+  mkdir -p "$android_home/cmdline-tools"
+  rm -rf "$android_home/cmdline-tools/latest"
+  mv "$tmp/cmdline-tools" "$android_home/cmdline-tools/latest"
+  rm -rf "$tmp"
+fi
+
+step "Android SDK packages"
+to_install=()
+for pkg in "${sdk_packages[@]}"; do
+  [[ -f "$android_home/${pkg//;//}/package.xml" ]] || to_install+=("$pkg")
+done
+if ((${#to_install[@]})); then
+  # `yes` dies of SIGPIPE when sdkmanager stops reading; that is expected.
+  { yes || true; } | "$sdkmanager" --sdk_root="$android_home" --licenses >/dev/null
+  "$sdkmanager" --sdk_root="$android_home" "${to_install[@]}" | grep -v '^\[=' || true
+  for pkg in "${to_install[@]}"; do
+    [[ -f "$android_home/${pkg//;//}/package.xml" ]] || { echo "SDK package $pkg failed to install" >&2; exit 1; }
+  done
+fi
+
+step "Android CLI"
+if [[ ! -x "$HOME/.local/bin/android" ]]; then
+  mkdir -p "$HOME/.local/bin"
+  curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/android -o "$HOME/.local/bin/android.tmp"
+  chmod +x "$HOME/.local/bin/android.tmp"
+  mv "$HOME/.local/bin/android.tmp" "$HOME/.local/bin/android"
+fi
+
+step "Login shell environment"
+profile_marker="# airbuzz Android toolchain"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<EOF
+
+$profile_marker
+export JAVA_HOME="$java_home"
+export ANDROID_HOME="$android_home"
+export ANDROID_SDK_ROOT="$android_home"
+case ":\$PATH:" in
+  *":$android_home/platform-tools:"*) ;;
+  *) export PATH="\$HOME/.local/bin:$android_home/cmdline-tools/latest/bin:$android_home/platform-tools:\$PATH" ;;
+esac
+EOF
+fi
+
+step "Golden Gate submodules"
+git submodule update --init third_party/golden-gate
+git -C third_party/golden-gate submodule update --init external/lwip external/mbedtls
+
+step "local.properties"
+echo "sdk.dir=$android_home" > local.properties
+
+step "Gradle warm-up (unit tests and debug APK)"
+# Downloads Gradle, AGP and the libraries and builds the native code once, so a thread's
+# first build is incremental. A broken build on main must not block the snapshot.
+if ! (ANDROID_HOME="$android_home" ./gradlew --no-daemon --quiet \
+      :app:testDebugUnitTest :app:assembleDebug); then
+  echo "WARNING: the AirBuzz build failed; caches are warm but the build needs fixing" >&2
+fi
+
+step "Done in ${SECONDS}s"
