@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.davort.airbuzz.data.Entry
+import com.davort.airbuzz.data.Kind
 import com.davort.airbuzz.data.Result
 import java.util.Calendar
 
@@ -135,7 +136,7 @@ fun BuzzStrip(entries: List<Entry>, modifier: Modifier = Modifier) {
     val dayStart = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis
-    val today = entries.filter { it.time >= dayStart }
+    val today = entries.filter { it.time >= dayStart && it.kind != Kind.TEST }
     Canvas(modifier.fillMaxWidth().height(36.dp)) {
         val base = size.height - 2.dp.toPx()
         drawLine(air.line, Offset(0f, base), Offset(size.width, base), 2.dp.toPx())

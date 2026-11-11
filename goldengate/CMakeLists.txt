@@ -5,6 +5,8 @@ cmake_minimum_required(VERSION 3.18)
 project(airbuzz_goldengate C CXX)
 
 get_filename_component(GG_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/golden-gate ABSOLUTE)
+# Align LOAD segments to 16 KB so libgg and libxp load on 16 KB page-size phones (Android 15+).
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 include(${GG_ROOT}/xp/config/profiles/android/android.cmake)
 add_subdirectory(${GG_ROOT}/xp ${CMAKE_BINARY_DIR}/gg)
 

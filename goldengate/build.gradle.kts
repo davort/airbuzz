@@ -23,6 +23,8 @@ android {
     defaultConfig {
         minSdk = 28
         ndk { abiFilters += listOf("arm64-v8a") }
+        // 16 KB page-size phones (Android 15+) need 16 KB-aligned native libraries.
+        externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
     }
     externalNativeBuild {
         cmake {

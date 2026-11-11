@@ -62,7 +62,7 @@ object Setup {
             if (nearby) bondedAirAddress(c) != null else null, "Open Bluetooth", Fix.PAIR))
         add(Check("Notification access", "Lets AirBuzz see calls and messages. Nothing is stored except who they were from.",
             hasListener(c), "Allow", Fix.LISTENER))
-        add(Check("Status notification", "Shows that AirBuzz is on, with Pause and Turn off.", hasPostNotifications(c), "Allow", Fix.NOTIFICATIONS))
+        add(Check("Notifications", "Shows Silence while a call rings your Air.", hasPostNotifications(c), "Allow", Fix.NOTIFICATIONS))
         add(Check("Run in the background", "Links AirBuzz to your Air in Android, so Android lets it keep running in the background.",
             isAssociated(c), "Link", Fix.COMPANION))
         if (isXiaomi) add(Check("Xiaomi Autostart", "On Xiaomi phones, also turn on Autostart for AirBuzz. AirBuzz can't check this.",

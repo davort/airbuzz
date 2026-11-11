@@ -20,10 +20,6 @@ class AlertListener : NotificationListenerService() {
     private val lastText = HashMap<String, Int>()
     private val ringing = HashSet<String>()
 
-    override fun onListenerConnected() {
-        if (engine.settings.enabled) BuzzService.start(this)
-    }
-
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         val n = sbn.notification

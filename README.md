@@ -6,7 +6,8 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 
 ## Versions
 
-- **0.1** (versionCode 1): first build of the real app. Not yet run on a phone.
+- **0.1** (versionCode 1): first build of the real app. Installed on Davor's phone over adb (Play Protect blocks browser installs of apps with a notification listener); it warned that `libgg.so` and `libxp.so` weren't 16 KB-aligned.
+- **0.2** (versionCode 2): Golden Gate libraries linked for 16 KB pages; no permanent status notification or foreground service (the notification listener keeps AirBuzz running); Test buzz no longer counts on Home's buzz strip.
 
 ## What it does
 
@@ -23,7 +24,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 |---|---|
 | `band/` | `AirBand` drives the Air over Bluetooth LE and Golden Gate: connect (or reuse the open link), wait for Google Health's traffic to go quiet, open a DTLS session with the band's public `BOOTSTRAP` key, write the haptic strength to make it buzz, then hand the channel back to Google Health. |
 | `rules/` | Pure decisions: who may ring, which apps tap, quiet rules, the 15 s merge, phone number matching with libphonenumber. Unit tested. |
-| `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages; `BuzzService` is the foreground service with the status notification. |
+| `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages. Android keeps a notification listener running, so there is no foreground service or permanent notification; the only notification is "Ringing your Air" with Silence during a call. |
 | `data/` | Settings and the week's activity log, kept on the phone only. |
 | `ui/` | Jetpack Compose screens in the approved look: rules as sentences with tinted blanks that each open one bottom sheet. |
 | `Engine.kt` | Connects the two: one queue of band commands, where a call goes ahead of messages. |

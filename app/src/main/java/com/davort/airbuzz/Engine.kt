@@ -21,7 +21,6 @@ import com.davort.airbuzz.rules.Moment
 import com.davort.airbuzz.rules.Outcome
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings
-import com.davort.airbuzz.service.BuzzService
 import com.davort.airbuzz.service.Notifications
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,7 +91,7 @@ class Engine(private val app: Context) {
 
     fun setEnabled(on: Boolean) {
         store.update { it.copy(enabled = on) }
-        if (on) BuzzService.start(app) else { BuzzService.stop(app); band.shutdown() }
+        if (!on) band.shutdown()
     }
 
     // Calls
