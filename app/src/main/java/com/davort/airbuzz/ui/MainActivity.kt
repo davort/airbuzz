@@ -298,16 +298,15 @@ fun RuleItem(label: String, caption: String, sentence: @Composable () -> Unit) {
 @Composable
 fun PausedCard(s: AirSettings, now: Long, onResume: () -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
-    val forever = s.pausedUntil == Long.MAX_VALUE
     Card(gap = 6.dp, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlyphIcon(Glyph.PAUSE, 14.dp, a.muted, 2.4f)
             HGap(6)
             val left = (s.pausedUntil - now).coerceAtLeast(0) / 60_000
-            Label(if (forever) "Paused" else if (left >= 60) "Paused · ${left / 60} h ${left % 60} min left" else "Paused · $left min left")
+            Label(if (left >= 60) "Paused · ${left / 60} h ${left % 60} min left" else "Paused · $left min left")
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (forever) "Until you resume" else "Until ${timeOf(s.pausedUntil)}", style = Type.title, color = a.ink, modifier = Modifier.weight(1f))
+            Text("Until ${timeOf(s.pausedUntil)}", style = Type.title, color = a.ink, modifier = Modifier.weight(1f))
             HGap(12)
             Pill("Resume", onResume, small = true)
         }

@@ -25,7 +25,7 @@ data class Settings(
     val quietStart: Int = 23 * 60,
     val quietEnd: Int = 7 * 60,
     val quietInUse: Boolean = true,
-    /** Epoch millis; [Long.MAX_VALUE] means until turned back on. */
+    /** Epoch millis when a pause ends. Pausing until switched back on is Off instead (decision 37). */
     val pausedUntil: Long = 0L,
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val lightAccent: Int = 0,

@@ -282,14 +282,15 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, editTime: (
 fun clock(minutes: Int) = String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60)
 
 /** The four ways to pause, as (name, until). [Long.MAX_VALUE] means until turned back on. */
-fun pauseOptions(s: Settings, now: Long): List<Pair<String, Long>> {
+/** Each option's name and when the pause ends; null turns AirBuzz off until switched back on (decision 37). */
+fun pauseOptions(s: Settings, now: Long): List<Pair<String, Long?>> {
     val morning = Calendar.getInstance().apply {
         timeInMillis = now
         set(Calendar.HOUR_OF_DAY, s.quietEnd / 60); set(Calendar.MINUTE, s.quietEnd % 60); set(Calendar.SECOND, 0)
         if (timeInMillis <= now) add(Calendar.DAY_OF_YEAR, 1)
     }.timeInMillis
     return listOf("For 30 minutes" to now + 30 * 60_000L, "For 1 hour" to now + 3600_000L, "Until morning" to morning,
-        "Until I turn it back on" to Long.MAX_VALUE)
+        "Turn off" to null)
 }
 
 @Composable
@@ -297,8 +298,12 @@ fun PauseSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     val now = remember { System.currentTimeMillis() }
     val options = remember { pauseOptions(s, now) }
     var choice by remember { mutableStateOf(2) }
-    Sheet("Pause AirBuzz", onClose, action = "Pause", onAction = {
-        engine.store.update { it.copy(pausedUntil = options[choice].second) }
+    val until = options[choice].second
+    Sheet("Pause AirBuzz", onClose, action = if (until == null) "Turn off" else "Pause", onAction = {
+        if (until == null) {
+            engine.store.update { it.copy(pausedUntil = 0L) }
+            engine.setEnabled(false)
+        } else engine.store.update { it.copy(pausedUntil = until) }
         onClose()
     }) {
         PauseBody(options, choice) { choice = it }
@@ -306,15 +311,15 @@ fun PauseSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
 }
 
 @Composable
-fun PauseBody(options: List<Pair<String, Long>>, choice: Int, onChoose: (Int) -> Unit) {
+fun PauseBody(options: List<Pair<String, Long?>>, choice: Int, onChoose: (Int) -> Unit) {
     val a = LocalAirColors.current
     Column {
         options.forEachIndexed { i, (name, until) ->
             LineRow(i == 0, onClick = { onChoose(i) }) {
                 Mark(choice == i, radio = true)
-                TwoLine(name, Modifier.weight(1f), if (until != Long.MAX_VALUE) ({ Label("until ${timeOf(until)}") }) else null)
+                TwoLine(name, Modifier.weight(1f)) { Label(until?.let { "until ${timeOf(it)}" } ?: "nothing buzzes") }
             }
         }
     }
-    Text("Chosen callers still ring while AirBuzz is paused.", style = Type.small, color = a.muted)
+    Text("Chosen callers still ring while AirBuzz is paused, but not when it's off.", style = Type.small, color = a.muted)
 }
