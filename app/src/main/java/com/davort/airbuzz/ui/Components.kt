@@ -41,12 +41,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -72,11 +80,53 @@ enum class Glyph(val lines: List<List<Offset>>) {
     PLUS(listOf(listOf(Offset(12f, 5f), Offset(12f, 19f)), listOf(Offset(5f, 12f), Offset(19f, 12f)))),
     CHECK(listOf(listOf(Offset(5f, 12.5f), Offset(9.5f, 17f), Offset(19f, 7.5f)))),
     PAUSE(listOf(listOf(Offset(9f, 6f), Offset(9f, 18f)), listOf(Offset(15f, 6f), Offset(15f, 18f)))),
-    /** Three slider lines with knobs, for Settings. */
-    TUNE(listOf(
-        listOf(Offset(4f, 7f), Offset(20f, 7f)), listOf(Offset(4f, 12f), Offset(20f, 12f)), listOf(Offset(4f, 17f), Offset(20f, 17f)),
-        listOf(Offset(9f, 5f), Offset(9f, 9f)), listOf(Offset(15f, 10f), Offset(15f, 14f)), listOf(Offset(7f, 15f), Offset(7f, 19f)),
-    )),
+}
+
+/** Icons with curves, as SVG paths on the same 24-unit grid, drawn from the Paper design. */
+enum class Curve(val d: String) {
+    SIGNAL_OFF("M3 9a13 13 0 0 1 18 0M6 12.5a8.5 8.5 0 0 1 12 0M9 16a4 4 0 0 1 6 0M12 19.5h.01M4 3l16 18"),
+    BELL_OFF("M8.7 3.9A6 6 0 0 1 18 9c0 3.3.8 5.5 1.6 6.9M6.3 6.3A6 6 0 0 0 6 9c0 5.5-2.5 8-2.5 8H17M10.3 20a2 2 0 0 0 3.4 0M4 4l16 16"),
+    BLUETOOTH_OFF("M12 12v9l4.5-4.5L14 14M12 12V3l4.5 4.5L14 10M12 12l-5 5M7 7l5 5M4 4l16 16"),
+}
+
+@Composable
+fun CurveIcon(curve: Curve, size: Dp = 24.dp, color: Color = LocalAirColors.current.ink, stroke: Float = 2f) {
+    val path = remember(curve) { PathParser().parsePathString(curve.d).toPath() }
+    Canvas(Modifier.size(size)) {
+        val k = this.size.width / 24f
+        scale(k, pivot = Offset.Zero) { drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)) }
+    }
+}
+
+/** The Air seen from the front, small: strap, pebble and its two dots. */
+@Composable
+fun AirPebble(height: Dp = 40.dp) {
+    val a = LocalAirColors.current
+    Canvas(Modifier.size(width = height * 0.6f, height = height)) {
+        val k = size.height / 20f
+        drawRoundRect(a.context, Offset(3.5f * k, 0f), Size(5f * k, 20f * k), CornerRadius(1f * k))
+        drawRoundRect(Pebble, Offset(1f * k, 2.5f * k), Size(10f * k, 15f * k), CornerRadius(5f * k))
+        drawRoundRect(a.ink, Offset(1f * k, 2.5f * k), Size(10f * k, 15f * k), CornerRadius(5f * k), style = Stroke(1f * k))
+        drawCircle(Color(0xFF888B90), 0.9f * k, Offset(6f * k, 6.5f * k))
+        drawCircle(Color(0xFF888B90), 0.9f * k, Offset(6f * k, 13.5f * k))
+    }
+}
+
+/** One CSS-style box shadow: offset, blur and colour. */
+data class Shade(val y: Dp, val blur: Dp, val color: Color)
+
+/**
+ * Draws [shades] behind a rounded box of colour [fill], blurred like CSS box-shadow, which Compose's elevation shadows
+ * can't match.
+ */
+fun Modifier.softShadow(corner: Dp, fill: Color, shades: List<Shade>) = drawBehind {
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    shades.forEach { s ->
+        paint.color = fill.toArgb()
+        // CSS blur is twice the Gaussian sigma; Android's shadow radius is (sigma - 0.5) / 0.57735.
+        paint.setShadowLayer(((s.blur.toPx() / 2f - 0.5f) / 0.57735f).coerceAtLeast(0.1f), 0f, s.y.toPx(), s.color.toArgb())
+        drawIntoCanvas { it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, corner.toPx(), corner.toPx(), paint) }
+    }
 }
 
 @Composable

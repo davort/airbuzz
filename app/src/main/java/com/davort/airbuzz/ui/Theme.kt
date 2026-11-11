@@ -60,6 +60,8 @@ data class AirColors(
     val onInk: Color,
     val ok: Color,
     val warn: Color,
+    /** The circle behind a warning icon on the Air shelf. */
+    val warnTint: Color,
     val accent: Color,
     /** A blank at rest: the accent at 10% (light) or 16% (dark) over the surface. */
     val tint: Color,
@@ -76,12 +78,12 @@ fun airColors(dark: Boolean, accent: Color): AirColors {
     return if (dark) AirColors(
         dark = true, bg = Color(0xFF0E0F10), surface = surface, ink = Color(0xFFECEDF0), heading = Color.White,
         muted = Color(0xFF9A9DA3), line = Color(0xFF2A2B2E), outline = Color(0xFF595C61), selected = Color(0xFF313236),
-        context = Color(0xFF3D3F43), onInk = Color(0xFF0E0F10), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A),
+        context = Color(0xFF3D3F43), onInk = Color(0xFF0E0F10), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A), warnTint = Color(0xFF3F3221),
         accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.24f).compositeOver(surface),
     ) else AirColors(
         dark = false, bg = Color(0xFFF1F2F4), surface = surface, ink = Color(0xFF121418), heading = Color(0xFF05070A),
         muted = Color(0xFF62666E), line = Color(0xFFDFE1E5), outline = Color(0xFFAFB3BA), selected = Color(0xFFE4E6EA),
-        context = Color(0xFFC6C9CF), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00),
+        context = Color(0xFFC6C9CF), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00), warnTint = Color(0xFFF6EEE0),
         accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
     )
 }

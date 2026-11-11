@@ -34,6 +34,9 @@ object Setup {
     fun hasPostNotifications(c: Context) = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
+    /** True unless the phone's Bluetooth is switched off. Needs no permission. */
+    fun bluetoothOn(c: Context) = c.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled != false
+
     fun hasListener(c: Context) = NotificationManagerCompat.getEnabledListenerPackages(c).contains(c.packageName)
 
     @SuppressLint("MissingPermission")
