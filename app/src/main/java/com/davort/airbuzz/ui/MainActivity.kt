@@ -276,9 +276,10 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
         // The shelf floats over the list, which fades out under it.
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp)
             .background(Brush.verticalGradient(0f to Color.Transparent, 0.55f to a.bg)))
+        val live = s.enabled && !paused && reached != null
         AirShelf(
-            problem.takeIf { s.enabled },
-            if (reached == null) "Not reached yet" else if (s.enabled) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
+            problem.takeIf { s.enabled }, live,
+            if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
             Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
             onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
         ) { go(Screen.SETTINGS) }
@@ -344,10 +345,11 @@ fun firstProblem(context: android.content.Context, lastError: String?, reached: 
 
 /**
  * The card floating at the bottom of Home (decision 33): it opens Settings, and carries the one problem when something
- * breaks, at the same height. Light mode casts a neutral shadow; dark mode glows in the accent, or in warn for a problem.
+ * breaks, at the same height. The dot is green only while AirBuzz is on and has reached the Air. Light mode casts a
+ * neutral shadow; dark mode glows in the accent, or in warn for a problem.
  */
 @Composable
-fun AirShelf(problem: Problem?, reached: String, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
+fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(24.dp)
     val shades = if (a.dark) listOf(Shade(0.dp, 14.dp, (if (problem != null) a.warn else a.accent).copy(alpha = 0.5f)), Shade(4.dp, 12.dp, Color.Black.copy(alpha = 0.6f)))
@@ -368,7 +370,7 @@ fun AirShelf(problem: Problem?, reached: String, modifier: Modifier = Modifier, 
                 AirPebble(40.dp)
                 // A 10 dp green dot with a 2 dp ring of the card colour.
                 Box(Modifier.align(Alignment.TopEnd).padding(end = 3.dp).size(14.dp).clip(CircleShape).background(a.surface),
-                    contentAlignment = Alignment.Center) { Dot(a.ok, 10.dp) }
+                    contentAlignment = Alignment.Center) { Dot(if (live) a.ok else a.muted, 10.dp) }
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -378,7 +380,7 @@ fun AirShelf(problem: Problem?, reached: String, modifier: Modifier = Modifier, 
             else Label(reached)
         }
         if (problem != null) Pill(problem.action, { onFix(problem) }, small = true)
-        else GlyphIcon(Glyph.CHEVRON, 20.dp, a.ink)
+        else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)
     }
 }
 

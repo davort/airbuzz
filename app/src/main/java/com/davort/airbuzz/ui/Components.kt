@@ -87,6 +87,8 @@ enum class Curve(val d: String) {
     SIGNAL_OFF("M3 9a13 13 0 0 1 18 0M6 12.5a8.5 8.5 0 0 1 12 0M9 16a4 4 0 0 1 6 0M12 19.5h.01M4 3l16 18"),
     BELL_OFF("M8.7 3.9A6 6 0 0 1 18 9c0 3.3.8 5.5 1.6 6.9M6.3 6.3A6 6 0 0 0 6 9c0 5.5-2.5 8-2.5 8H17M10.3 20a2 2 0 0 0 3.4 0M4 4l16 16"),
     BLUETOOTH_OFF("M12 12v9l4.5-4.5L14 14M12 12V3l4.5 4.5L14 10M12 12l-5 5M7 7l5 5M4 4l16 16"),
+    /** Three slider lines with knobs, for Settings. */
+    TUNE("M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1M15 5v4M9 10v4M17 15v4"),
 }
 
 @Composable
@@ -216,7 +218,7 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
 fun AirSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val a = LocalAirColors.current
     Switch(checked, onChange, modifier, colors = SwitchDefaults.colors(
-        checkedThumbColor = a.bg, checkedTrackColor = a.ink, checkedBorderColor = a.ink,
+        checkedThumbColor = a.bg, checkedTrackColor = a.accent, checkedBorderColor = a.accent,
         uncheckedThumbColor = a.muted, uncheckedTrackColor = Color.Transparent, uncheckedBorderColor = a.muted,
     ))
 }

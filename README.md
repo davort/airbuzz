@@ -12,6 +12,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.3.1** (versionCode 4): a buzz that loses the Air to Google Health is tried again every 5 s instead of dropped: messages for up to 30 s, calls for as long as they ring (up to 60 s). 0.2 dropped a Telegram message this way on Davor's phone.
 - **0.3.2** (versionCode 5): AirBuzz keeps its own log of its last 500 steps (each call and message with the app and what the rules decided, every band step, retries, the notification listener connecting) and Settings has Share log. The phone's system log keeps only a few minutes. No message text or caller names go in it.
 - **0.3.3** (versionCode 6): Settings moved from the Home top bar to the Air shelf, a card floating at the bottom of Home that shows when the Air was last reached and opens Settings (brief decision 33). When something stops AirBuzz, the shelf turns into that one problem with its fix: Bluetooth off, Nearby devices or notification access not allowed, no paired Air, or the Air out of reach. It replaces the problem banner. The Home buzz strip is as tall as the one on Activity (decision 34).
+- **0.3.4** (versionCode 7): the Air shelf shows the Settings icon instead of a chevron, and its dot is green only while AirBuzz is on and has reached the Air (grey before, when off, or paused). Switches are filled with the accent colour when on.
 
 ## What it does
 

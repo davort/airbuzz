@@ -6,7 +6,7 @@ Davor owns this; it is his first Android project, so explain Android steps he mu
 
 - Every APK Davor installs gets a new `versionCode` and `versionName` in `app/build.gradle.kts` and a line under "Versions" in `README.md`.
 - Keep `THIRD_PARTY_NOTICES.md` current when adding code or assets from elsewhere. The band layer follows the MIT fitbit-air library; keep its notice.
-- Nothing involving Bluetooth, the band, permissions, background running, notifications, calls, or how a screen looks on his phone is verified until it has run on his phone (a Xiaomi on HyperOS). Orbs cannot run an Android emulator. Name what still needs the phone when you report.
+- Nothing involving Bluetooth, the band, permissions, background running, notifications, calls, or how a screen looks on his phone is verified until it has run on his phone: an OPPO Find X9 Pro (CPH2791) on ColorOS 17, Android 17 (checked over adb on 11 Nov 2026). Orbs cannot run an Android emulator. Name what still needs the phone when you report.
 - Record hardware results in `davort/airbuzz-research` `research/README.md` under "Confirmed on hardware".
 
 ## Checking UI in an orb
