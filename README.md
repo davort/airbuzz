@@ -9,6 +9,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.1** (versionCode 1): first build of the real app. Installed on Davor's phone over adb (Play Protect blocks browser installs of apps with a notification listener); it warned that `libgg.so` and `libxp.so` weren't 16 KB-aligned.
 - **0.2** (versionCode 2): Golden Gate libraries linked for 16 KB pages; no permanent status notification or foreground service (the notification listener keeps AirBuzz running); Test buzz no longer counts on Home's buzz strip.
 - **0.3** (versionCode 3): the approved look from the first design pass (brief decisions 20–32): Google Sans Flex, Google Sans Code, Instrument Serif and Geist Pixel; cool grey palettes; slim segmented buttons; Pause from the Home switch with a paused card; "ignored" alerts; Activity one day at a time with totals and ignored-by-source rows; Test buzz with the front drawing of the Air, a 0–8 s timeline and Show details.
+- **0.3.1** (versionCode 4): a buzz that loses the Air to Google Health is tried again every 5 s instead of dropped: messages for up to 30 s, calls for as long as they ring (up to 60 s). 0.2 dropped a Telegram message this way on Davor's phone.
 
 ## What it does
 

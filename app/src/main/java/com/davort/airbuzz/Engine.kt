@@ -74,10 +74,13 @@ class Engine(private val app: Context) {
     private val testState = MutableStateFlow<TestRun?>(null)
     val test: StateFlow<TestRun?> = testState
 
-    private class Job(val cmd: BandCommand, val ringKey: String? = null, val buzzed: () -> Unit = {}, val done: (BandResult) -> Unit)
+    /** [giveUpAt] (elapsed realtime) is how long a failed job may be retried; 0 means never, as for Test buzz. */
+    private class Job(val cmd: BandCommand, val ringKey: String? = null, val giveUpAt: Long = 0L, val buzzed: () -> Unit = {}, val done: (BandResult) -> Unit)
 
     private val queue = ArrayDeque<Job>()
     private var running: Job? = null
+    /** Jobs that failed, usually because Google Health held the Air, waiting [RETRY_MS] to try again. */
+    private val waiting = mutableListOf<Job>()
     private val lastBuzzByApp = HashMap<String, Long>()
 
     val settings: Settings get() = store.settings.value
@@ -98,7 +101,7 @@ class Engine(private val app: Context) {
 
     /** An incoming call notification from [pkg], identified by its notification [key]. */
     fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment) {
-        if (running?.ringKey == key || queue.any { it.ringKey == key }) return
+        if (running?.ringKey == key || queue.any { it.ringKey == key } || waiting.any { it.ringKey == key }) return
         val who = caller.name ?: caller.number ?: "Unknown caller"
         when (val o = Rules.decideCall(caller, settings, moment, region)) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
@@ -109,7 +112,7 @@ class Engine(private val app: Context) {
                 Notifications.showRinging(app, who)
                 val start = SystemClock.elapsedRealtime()
                 // A ring goes ahead of queued message taps.
-                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key) { r ->
+                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS) { r ->
                     Notifications.cancelRinging(app)
                     bandState.value = bandState.value.copy(ringingWho = null)
                     log.updateLast({ it.time == entry.time && it.kind == Kind.CALL }) {
@@ -127,12 +130,14 @@ class Engine(private val app: Context) {
     fun onCallEnded(key: String) {
         if (running?.ringKey == key) band.stopRing()
         queue.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
+        waiting.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
     }
 
     /** Silence from the "Ringing your Air" notification. */
     fun silence() {
         running?.takeIf { it.ringKey != null }?.let { band.stopRing() }
         queue.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
+        waiting.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
     }
 
     // Messages
@@ -150,7 +155,8 @@ class Engine(private val app: Context) {
                 lastBuzzByApp[pkg] = moment.nowMs
                 val entry = Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.BUZZED)
                 log.add(entry)
-                queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength)) { r ->
+                val giveUpAt = SystemClock.elapsedRealtime() + MESSAGE_RETRY_FOR_MS
+                queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength), giveUpAt = giveUpAt) { r ->
                     log.updateLast({ it.time == entry.time && it.pkg == pkg }) {
                         if (r.taps > 0) it.copy(latencyMs = r.firstBuzzMs) else it.copy(result = Result.FAILED, reason = r.message)
                     }
@@ -196,12 +202,26 @@ class Engine(private val app: Context) {
         band.keepLinkOpen = settings.enabled
         band.run(job.cmd, job.buzzed) { r ->
             running = null
+            val failed = !r.ok && r.taps == 0
+            // A buzz that lost the Air to Google Health is tried again a little later rather than dropped.
+            val retry = failed && SystemClock.elapsedRealtime() + RETRY_MS < job.giveUpAt
             bandState.value = bandState.value.copy(
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
-                lastError = if (r.ok || r.taps > 0) null else r.message,
+                lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
             )
-            job.done(r)
+            if (retry) {
+                Log.i(TAG, "${r.message} Trying again in ${RETRY_MS / 1000} s")
+                waiting += job
+                main.postDelayed({
+                    if (waiting.remove(job)) {
+                        if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
+                        pump()
+                    }
+                }, RETRY_MS)
+            } else {
+                job.done(r)
+            }
             main.post { pump() }
         }
     }
@@ -216,5 +236,10 @@ class Engine(private val app: Context) {
 
     companion object {
         const val TAG = "AirBuzz"
+        const val RETRY_MS = 5_000L
+        /** A message buzz is worth up to half a minute late; after that it is logged as failed. */
+        const val MESSAGE_RETRY_FOR_MS = 30_000L
+        /** A call keeps trying for as long as AirBuzz would ring it, unless it ends first. */
+        const val RING_RETRY_FOR_MS = 60_000L
     }
 }
