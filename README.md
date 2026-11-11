@@ -8,6 +8,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 
 - **0.1** (versionCode 1): first build of the real app. Installed on Davor's phone over adb (Play Protect blocks browser installs of apps with a notification listener); it warned that `libgg.so` and `libxp.so` weren't 16 KB-aligned.
 - **0.2** (versionCode 2): Golden Gate libraries linked for 16 KB pages; no permanent status notification or foreground service (the notification listener keeps AirBuzz running); Test buzz no longer counts on Home's buzz strip.
+- **0.3** (versionCode 3): the approved look from the first design pass (brief decisions 20–32): Google Sans Flex, Google Sans Code, Instrument Serif and Geist Pixel; cool grey palettes; slim segmented buttons; Pause from the Home switch with a paused card; "ignored" alerts; Activity one day at a time with totals and ignored-by-source rows; Test buzz with the front drawing of the Air, a 0–8 s timeline and Show details.
 
 ## What it does
 
@@ -26,7 +27,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 | `rules/` | Pure decisions: who may ring, which apps tap, quiet rules, the 15 s merge, phone number matching with libphonenumber. Unit tested. |
 | `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages. Android keeps a notification listener running, so there is no foreground service or permanent notification; the only notification is "Ringing your Air" with Silence during a call. |
 | `data/` | Settings and the week's activity log, kept on the phone only. |
-| `ui/` | Jetpack Compose screens in the approved look: rules as sentences with tinted blanks that each open one bottom sheet. |
+| `ui/` | Jetpack Compose screens in the approved look (design pass in Paper, brief decisions 20–32): rules as sentences with tinted blanks that each open one bottom sheet. `Theme.kt` holds the colour and type tokens. |
 | `Engine.kt` | Connects the two: one queue of band commands, where a call goes ahead of messages. |
 
 Choices that came from measuring on a real Air (test app 0.2–0.4 in the private research repo):

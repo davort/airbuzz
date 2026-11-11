@@ -67,6 +67,13 @@ object Rules {
         }
     }
 
+    /** A stored number as people write it, such as "+385 91 234 5612". */
+    fun display(number: String): String = try {
+        phoneUtil.format(phoneUtil.parse(number, "ZZ"), PhoneNumberUtil.PhoneNumberFormat.INTERNATIONAL)
+    } catch (_: NumberParseException) {
+        number
+    }
+
     fun matches(person: Person, caller: Caller, region: String): Boolean {
         val callerNumber = caller.number?.let { normalize(it, region) }
         if (person.number != null && callerNumber != null) return person.number == callerNumber

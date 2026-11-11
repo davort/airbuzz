@@ -15,30 +15,28 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -48,10 +46,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,12 +59,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.davort.airbuzz.Engine
 import com.davort.airbuzz.data.Entry
 import com.davort.airbuzz.data.Kind
-import com.davort.airbuzz.data.Result
 import com.davort.airbuzz.engine
 import com.davort.airbuzz.rules.CallMode
 import com.davort.airbuzz.rules.Person
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings as AirSettings
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
@@ -80,14 +80,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by engine.store.settings.collectAsStateWithLifecycle()
             AirBuzzTheme(settings) {
-                val dark = LocalAirColors.current.dark
-                val bg = MaterialTheme.colorScheme.background
-                LaunchedEffect(dark) {
-                    val style = if (dark) SystemBarStyle.dark(Color.Transparent.toArgb())
+                val a = LocalAirColors.current
+                LaunchedEffect(a.dark) {
+                    val style = if (a.dark) SystemBarStyle.dark(Color.Transparent.toArgb())
                         else SystemBarStyle.light(Color.Transparent.toArgb(), Color.Transparent.toArgb())
                     enableEdgeToEdge(style, style)
                 }
-                Surface(Modifier.fillMaxSize(), color = bg) { App(engine, settings) }
+                Box(Modifier.fillMaxSize().background(a.bg)) { App(engine, settings) }
             }
         }
     }
@@ -102,6 +101,15 @@ fun rememberResumeTick(): Int {
     return tick
 }
 
+/** The wall clock, refreshed every [everyMs] so countdowns and "today" stay current. */
+@Composable
+fun rememberNow(everyMs: Long = 30_000): Long {
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) { delay(everyMs); value = System.currentTimeMillis() }
+    }
+    return now
+}
+
 @Composable
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
@@ -110,13 +118,14 @@ fun App(engine: Engine, settings: AirSettings) {
         screen = if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME
     }
     val go: (Screen) -> Unit = { screen = it }
+    val open: (SheetKind) -> Unit = { sheet = it }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         when (screen) {
-            Screen.HOME -> Home(engine, settings, go) { sheet = it }
+            Screen.HOME -> Home(engine, settings, sheet, go, open)
             Screen.SETTINGS -> SettingsScreen(engine, settings, go)
             Screen.APPEARANCE -> AppearanceScreen(engine, settings) { screen = Screen.SETTINGS }
             Screen.TEST -> TestBuzzScreen(engine) { screen = Screen.HOME }
-            Screen.ACTIVITY -> ActivityScreen(engine) { screen = Screen.HOME }
+            Screen.ACTIVITY -> ActivityScreen(engine, open) { screen = Screen.HOME }
             Screen.SETUP -> SetupScreen(engine, go) { screen = Screen.SETTINGS }
         }
     }
@@ -129,21 +138,6 @@ fun App(engine: Engine, settings: AirSettings) {
             SheetKind.QUIET -> QuietSheet(engine, settings, close)
             SheetKind.PAUSE -> PauseSheet(engine, settings, close)
         }
-    }
-}
-
-@Composable
-fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(start = if (onBack == null) 20.dp else 4.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        if (onBack != null) {
-            Box(Modifier.size(48.dp).clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "Back", onClick = onBack),
-                contentAlignment = Alignment.Center) {
-                BackArrow(MaterialTheme.colorScheme.onSurface, Modifier.size(24.dp))
-            }
-        }
-        Text(title, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp), modifier = Modifier.weight(1f).semantics { heading() })
-        actions()
     }
 }
 
@@ -165,111 +159,148 @@ fun tapsWord(n: Int) = when (n) { 1 -> "once"; 2 -> "twice"; else -> "three time
 
 fun timeOf(ms: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(ms))
 
+fun dayStart(daysAgo: Int = 0, now: Long = System.currentTimeMillis()): Long = Calendar.getInstance().apply {
+    timeInMillis = now
+    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    add(Calendar.DAY_OF_YEAR, -daysAgo)
+}.timeInMillis
+
+/** When AirBuzz last made the Air buzz: from the band, or from the log after a restart. */
+fun lastReached(bandReachedAt: Long?, entries: List<Entry>): Long? =
+    listOfNotNull(bandReachedAt, entries.lastOrNull { it.fate == Fate.BUZZED }?.time).maxOrNull()
+
 @Composable
-fun Home(engine: Engine, s: AirSettings, go: (Screen) -> Unit, open: (SheetKind) -> Unit) {
+fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit, open: (SheetKind) -> Unit) {
     val context = LocalContext.current
-    val air = LocalAirColors.current
+    val a = LocalAirColors.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val tick = rememberResumeTick()
+    val now = rememberNow()
     val apps = remember(tick) { installedApps(context) }
     val problem = remember(tick, band.lastError, s.enabled) { firstProblem(context, band.lastError) }
-    val now = System.currentTimeMillis()
-    val paused = s.pausedUntil > now
+    val paused = s.enabled && s.pausedUntil > now
     val notificationsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopBar("AirBuzz") {
-            TextButton(onClick = { go(Screen.SETTINGS) }) { Label("Settings", color = MaterialTheme.colorScheme.onSurface) }
-            Switch(checked = s.enabled, onCheckedChange = { on ->
-                if (on && Build.VERSION.SDK_INT >= 33 && !Setup.hasPostNotifications(context)) {
-                    notificationsLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-                engine.setEnabled(on)
-            })
-        }
-        Column(Modifier.padding(horizontal = 20.dp)) {
+    Page {
+        // Top bar: title, state, switch (decision 20), Settings.
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("AirBuzz", style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).semantics { heading() })
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val status = when {
-                    !s.enabled -> "Off"
-                    paused && s.pausedUntil == Long.MAX_VALUE -> "Paused"
-                    paused -> "Paused until ${timeOf(s.pausedUntil)}"
-                    else -> "On"
+                when {
+                    paused -> { GlyphIcon(Glyph.PAUSE, 16.dp, a.muted, 2.4f); HGap(4); Text("Paused", style = Type.smallMedium, color = a.muted) }
+                    s.enabled -> { Dot(a.ok); HGap(6); Text("On", style = Type.smallMedium, color = a.ink) }
+                    else -> { Dot(a.muted); HGap(6); Text("Off", style = Type.smallMedium, color = a.muted) }
                 }
-                Label(status, Modifier.clickable { open(SheetKind.PAUSE) }.padding(vertical = 6.dp),
-                    color = if (paused) air.warn else air.muted)
-                Box(Modifier.weight(1f))
-                band.lastReachedAt?.let { Label("Air reached ${timeOf(it)}") }
             }
-            if (problem != null && s.enabled) {
-                Gap(8)
-                ProblemBanner(problem.first, problem.second) { go(if (problem.third) Screen.SETUP else Screen.TEST) }
+            AirSwitch(s.enabled && !paused, { on ->
+                if (on) {
+                    if (Build.VERSION.SDK_INT >= 33 && !Setup.hasPostNotifications(context)) {
+                        notificationsLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    engine.store.update { it.copy(pausedUntil = 0L) }
+                    if (!s.enabled) engine.setEnabled(true)
+                } else {
+                    open(SheetKind.PAUSE)
+                }
+            }, Modifier.semantics { contentDescription = "AirBuzz" })
+            Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClickLabel = "Settings", role = Role.Button) { go(Screen.SETTINGS) }
+                .semantics { contentDescription = "Settings" }, contentAlignment = Alignment.Center) {
+                GlyphIcon(Glyph.TUNE, 22.dp, a.ink, 1.8f)
             }
-            Gap(10)
-            BuzzStrip(entries)
-            Gap(6)
-            val dayStart = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
-            val today = entries.filter { it.time >= dayStart && it.kind != Kind.TEST }
-            Row {
-                Label("Today")
-                Box(Modifier.weight(1f))
-                Label("${today.count { it.result == Result.BUZZED }} buzzed", color = air.accent)
-                Label(" · ${today.count { it.result != Result.BUZZED }} quiet")
-            }
-            Gap(16)
         }
-        Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(28.dp)), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Section {
+
+        if (paused) {
+            PausedCard(s, now, onResume = { engine.store.update { it.copy(pausedUntil = 0L) } }) { open(SheetKind.PAUSE) }
+        } else {
+            lastReached(band.lastReachedAt, entries)?.let { Label("Air reached ${timeOf(it)}") }
+            val start = dayStart(now = now)
+            val today = entries.filter { it.time >= start && it.kind != Kind.TEST }
+            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) },
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                BuzzStrip(entries, start)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Label("Calls", Modifier.weight(1f)); RhythmMarks(ring = true, taps = 0)
+                    Label("Today", Modifier.weight(1f))
+                    Label("${today.count { it.fate == Fate.BUZZED }} buzzed", color = a.accent)
+                    HGap(6)
+                    Label("· ${today.count { it.fate == Fate.IGNORED }} ignored")
+                    HGap(6)
+                    GlyphIcon(Glyph.CHEVRON, 14.dp, a.muted, 2.4f)
                 }
-                Gap(10)
-                val who = when (s.callMode) {
-                    CallMode.CHOSEN -> summarize(s.people.map { it.name }, "nobody yet")
-                    CallMode.CONTACTS -> "my contacts"
-                    CallMode.ANYONE -> "anyone"
-                }
+            }
+        }
+
+        if (problem != null && s.enabled) ProblemBanner(problem.first, problem.second) { go(if (problem.third) Screen.SETUP else Screen.TEST) }
+
+        val who = when (s.callMode) {
+            CallMode.CHOSEN -> summarize(s.people.map { it.name }, "nobody yet")
+            CallMode.CONTACTS -> "my contacts"
+            CallMode.ANYONE -> "anyone"
+        }
+        val one = s.callMode == CallMode.ANYONE || (s.callMode == CallMode.CHOSEN && s.people.size <= 1)
+        val names = s.apps.map { pkg -> apps.firstOrNull { it.pkg == pkg }?.label ?: pkg }.sorted()
+        Group(listOf(
+            { RuleItem("Calls", "Rings until answered") {
                 Sentence(listOf(
                     Part.Words("When"),
-                    Part.Blank("Who can ring", who) { open(SheetKind.PEOPLE) },
-                    Part.Words((if (s.callMode == CallMode.ANYONE || (s.callMode == CallMode.CHOSEN && s.people.size == 1)) "calls" else "call") +
-                        " from any app, ring my Air."),
+                    Part.Blank("Who can ring", who, open = sheet == SheetKind.PEOPLE) { open(SheetKind.PEOPLE) },
+                    Part.Words((if (one) "calls" else "call") + " from any app, ring my Air."),
                 ))
-            }
-            Section {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Label("Messages", Modifier.weight(1f)); RhythmMarks(ring = false, taps = s.messageTaps)
-                }
-                Gap(10)
-                val names = s.apps.map { pkg -> apps.firstOrNull { it.pkg == pkg }?.label ?: pkg }.sorted()
+            } },
+            { RuleItem("Messages", "Max 1 buzz per 15 s") {
                 Sentence(listOf(
                     Part.Words("When"),
-                    Part.Blank("Apps that tap", summarizeApps(names)) { open(SheetKind.APPS) },
-                    Part.Words("message, tap"),
-                    Part.Blank("Taps per message", tapsWord(s.messageTaps), after = ".") { open(SheetKind.PATTERN) },
+                    Part.Blank("Apps that tap", summarizeApps(names), open = sheet == SheetKind.APPS) { open(SheetKind.APPS) },
+                    Part.Words(if (names.size == 1) "messages, tap" else "message, tap"),
+                    Part.Blank("Taps per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
                 ))
-            }
-            Section {
-                Label("Quiet")
-                Gap(10)
+            } },
+            { RuleItem("Quiet", "Chosen callers still ring") {
                 Sentence(listOf(
                     Part.Words("Stay quiet"),
-                    Part.Blank("When to stay quiet", summarizeQuiet(quietRules(s)), after = ".") { open(SheetKind.QUIET) },
+                    Part.Blank("When to stay quiet", summarizeQuiet(quietRules(s)), after = ".", open = sheet == SheetKind.QUIET) { open(SheetKind.QUIET) },
                 ))
-                Gap(6)
-                Text("Chosen people still ring.", style = MaterialTheme.typography.bodyMedium, color = air.muted)
-            }
+            } },
+        ))
+
+        Spacer(Modifier.weight(1f))
+        val recent = entries.filter { it.kind != Kind.TEST }.takeLast(3).reversed()
+        Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (recent.isEmpty()) Text("Nothing yet. Calls and messages appear here with what AirBuzz did.", style = Type.small, color = a.muted)
+            recent.forEach { HistoryRow(it) }
         }
-        Gap(18)
-        Column(Modifier.padding(horizontal = 20.dp)) {
-            val recent = entries.filter { it.kind != Kind.TEST }.takeLast(3).reversed()
-            if (recent.isEmpty()) {
-                Text("Nothing yet. Alerts appear here with what AirBuzz did.", style = MaterialTheme.typography.bodyMedium, color = air.muted)
-            }
-            recent.forEach { EntryRow(it) }
-            TextButton(onClick = { go(Screen.ACTIVITY) }, modifier = Modifier.padding(top = 4.dp)) { Label("See all", color = air.accent) }
-            Gap(12)
+    }
+}
+
+@Composable
+fun RuleItem(label: String, caption: String, sentence: @Composable () -> Unit) {
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LabelRow(label) { Label(caption) }
+        sentence()
+    }
+}
+
+/** While paused, Home leads with when the pause ends (decision 20). */
+@Composable
+fun PausedCard(s: AirSettings, now: Long, onResume: () -> Unit, onClick: () -> Unit) {
+    val a = LocalAirColors.current
+    val forever = s.pausedUntil == Long.MAX_VALUE
+    Card(gap = 6.dp, onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GlyphIcon(Glyph.PAUSE, 14.dp, a.muted, 2.4f)
+            HGap(6)
+            val left = (s.pausedUntil - now).coerceAtLeast(0) / 60_000
+            Label(if (forever) "Paused" else if (left >= 60) "Paused · ${left / 60} h ${left % 60} min left" else "Paused · $left min left")
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (forever) "Until you resume" else "Until ${timeOf(s.pausedUntil)}", style = Type.title, color = a.ink, modifier = Modifier.weight(1f))
+            HGap(12)
+            Pill("Resume", onResume, small = true)
+        }
+        Text(
+            if (s.people.isEmpty()) "Nobody can ring your Air until then." else "Only ${summarize(s.people.map { it.name }, "")} can ring your Air.",
+            style = Type.small, color = a.muted,
+        )
     }
 }
 
@@ -294,40 +325,55 @@ fun firstProblem(context: android.content.Context, lastError: String?): Triple<S
     else -> null
 }
 
+/** One problem, one fix (principle 5). */
 @Composable
 fun ProblemBanner(text: String, action: String, onFix: () -> Unit) {
-    val air = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(air.warn.copy(alpha = 0.14f)).padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        TextButton(onClick = onFix) { Text(action, color = air.warn) }
+    val a = LocalAirColors.current
+    Card(gap = 0.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Dot(a.warn)
+            HGap(12)
+            Text(text, style = Type.small, color = a.ink, modifier = Modifier.weight(1f))
+            HGap(12)
+            Pill(action, onFix, filled = false, small = true)
+        }
     }
 }
 
 @Composable
-fun EntryRow(e: Entry) {
-    val air = LocalAirColors.current
-    val buzzed = e.result == Result.BUZZED
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(timeOf(e.time), style = MonoLabel.copy(fontSize = 13.sp), color = air.muted, modifier = Modifier.size(width = 64.dp, height = 20.dp))
-        Box(Modifier.size(12.dp).clip(RoundedCornerShape(50)).then(
-            if (buzzed) Modifier.background(air.accent)
-            else Modifier.border(1.5.dp, if (e.result == Result.FAILED) air.warn else air.muted, RoundedCornerShape(50))))
+fun HistoryRow(e: Entry) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Label(timeOf(e.time), Modifier.widthIn(min = 44.dp))
         HGap(10)
-        Text(describe(e), style = MaterialTheme.typography.bodyLarge, color = if (buzzed) MaterialTheme.colorScheme.onSurface else air.muted)
+        BarMark(e.fate)
+        HGap(10)
+        Text(describe(e), style = Type.body, color = if (e.fate == Fate.IGNORED) a.muted else a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 fun describe(e: Entry): String {
     val who = e.who ?: e.appLabel
     return when {
-        e.kind == Kind.TEST -> if (e.result == Result.BUZZED) "Test buzz · ${seconds(e.latencyMs)}" else "Test buzz · failed"
-        e.kind == Kind.CALL && e.result == Result.BUZZED -> "$who called · " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
-        e.kind == Kind.CALL -> "$who called · ${e.reason ?: "quiet"}"
-        e.result == Result.BUZZED -> if (e.count > 1) "$who · ${e.count} messages, 1 buzz" else "$who · ${e.appLabel}"
-        e.result == Result.FAILED -> "$who · couldn't reach your Air"
-        else -> "${e.appLabel} · ${e.reason ?: "merged"}"
+        e.kind == Kind.TEST -> if (e.result == com.davort.airbuzz.data.Result.BUZZED) "Test buzz · ${seconds(e.latencyMs)}" else "Test buzz · failed"
+        e.kind == Kind.CALL && e.fate == Fate.BUZZED -> "$who called · " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
+        e.kind == Kind.CALL && e.fate == Fate.FAILED -> "$who called · couldn't reach your Air"
+        e.kind == Kind.CALL -> "$who called · ${reasonLabel(e).lowercase()}"
+        e.fate == Fate.BUZZED -> if (e.count > 1) "$who · ${e.count} messages, 1 buzz" else "$who · ${e.appLabel}"
+        e.fate == Fate.FAILED -> "$who · couldn't reach your Air"
+        else -> "${e.appLabel} · ${reasonLabel(e).lowercase()}"
     }
+}
+
+/** Why an alert was ignored, in the words the screens use. */
+fun reasonLabel(e: Entry): String = when (e.reason) {
+    null -> if (e.result == com.davort.airbuzz.data.Result.MERGED) "Within 15 s" else "Ignored"
+    "not chosen" -> "Not chosen"
+    "quiet hours" -> "At night"
+    "phone in use" -> "Phone in use"
+    "paused" -> "Paused"
+    "AirBuzz is off" -> "AirBuzz off"
+    else -> e.reason.replaceFirstChar { it.uppercase() }
 }
 
 fun seconds(ms: Long?) = ms?.let { String.format(java.util.Locale.ROOT, "%.1f s", it / 1000.0) } ?: "–"

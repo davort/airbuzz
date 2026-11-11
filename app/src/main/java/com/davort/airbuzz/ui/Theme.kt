@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.davort.airbuzz.R
@@ -26,7 +27,7 @@ import com.davort.airbuzz.rules.ThemeMode
 /** A named accent swatch for the Appearance screen. */
 data class Accent(val name: String, val color: Color)
 
-/** The approved palettes: five accents per mode, each readable on its own tint (at least 4.5:1). */
+/** The approved swatches: five per mode, each keeping blank text at least 4.5:1 on its tint. */
 val LightAccents = listOf(
     Accent("Orange", Color(0xFFB5350E)),
     Accent("Blue", Color(0xFF2B56CF)),
@@ -42,58 +43,90 @@ val DarkAccents = listOf(
     Accent("Pink", Color(0xFFFF85BD)),
 )
 
-/** Colours outside Material's scheme: the blank tint, status dots and the buzz strip's quiet marks. */
+/** The design tokens (brief decisions 28 and 30): two cool grey palettes with the chosen accent. */
 @Immutable
 data class AirColors(
     val dark: Boolean,
-    val accent: Color,
-    val tint: Color,
-    val tintStrong: Color,
+    val bg: Color,
+    val surface: Color,
+    val ink: Color,
+    val heading: Color,
+    val muted: Color,
+    val line: Color,
+    val outline: Color,
+    val selected: Color,
+    /** Ignored marks, the strap, the sheet handle. */
+    val context: Color,
+    val onInk: Color,
     val ok: Color,
     val warn: Color,
-    val quietMark: Color,
-    val line: Color,
-    val muted: Color,
+    val accent: Color,
+    /** A blank at rest: the accent at 10% (light) or 16% (dark) over the surface. */
+    val tint: Color,
+    /** A pressed or open blank: 18% or 24%, the most that keeps blank text at 4.5:1 for every swatch. */
+    val tintPressed: Color,
 )
 
 val LocalAirColors = staticCompositionLocalOf { airColors(false, LightAccents[0].color) }
 
+val Pebble = Color(0xFF141414)
+
 fun airColors(dark: Boolean, accent: Color): AirColors {
-    val surface = if (dark) Color(0xFF191919) else Color.White
-    return AirColors(
-        dark = dark,
-        accent = accent,
-        tint = accent.copy(alpha = if (dark) 0.16f else 0.10f).compositeOver(surface),
-        tintStrong = accent.copy(alpha = if (dark) 0.28f else 0.20f).compositeOver(surface),
-        ok = if (dark) Color(0xFF5CC88A) else Color(0xFF2E8B57),
-        warn = if (dark) Color(0xFFF0A43A) else Color(0xFFB86E00),
-        quietMark = if (dark) Color(0xFF3E3E3C) else Color(0xFFC9C8C3),
-        line = if (dark) Color(0xFF2B2B2A) else Color(0xFFE2E1DD),
-        muted = if (dark) Color(0xFF9B9B97) else Color(0xFF6A6A67),
+    val surface = if (dark) Color(0xFF18191B) else Color.White
+    return if (dark) AirColors(
+        dark = true, bg = Color(0xFF0E0F10), surface = surface, ink = Color(0xFFECEDF0), heading = Color.White,
+        muted = Color(0xFF9A9DA3), line = Color(0xFF2A2B2E), outline = Color(0xFF595C61), selected = Color(0xFF313236),
+        context = Color(0xFF3D3F43), onInk = Color(0xFF0E0F10), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A),
+        accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.24f).compositeOver(surface),
+    ) else AirColors(
+        dark = false, bg = Color(0xFFF1F2F4), surface = surface, ink = Color(0xFF121418), heading = Color(0xFF05070A),
+        muted = Color(0xFF62666E), line = Color(0xFFDFE1E5), outline = Color(0xFFAFB3BA), selected = Color(0xFFE4E6EA),
+        context = Color(0xFFC6C9CF), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00),
+        accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
     )
 }
 
-@OptIn(ExperimentalTextApi::class)
-private fun flex(weight: Int) = Font(R.font.roboto_flex, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+// Fonts (decision 29), all under the SIL Open Font License.
 
 @OptIn(ExperimentalTextApi::class)
-private fun mono(weight: Int) = Font(R.font.roboto_mono, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+private fun sans(weight: Int) = Font(R.font.google_sans_flex, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 
-val Flex = FontFamily(flex(400), flex(500), flex(600))
-val Mono = FontFamily(mono(400), mono(500))
+@OptIn(ExperimentalTextApi::class)
+private fun code(weight: Int) = Font(R.font.google_sans_code, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 
-/** Small uppercase mono label with tabular numbers, as in the mockup. */
-val MonoLabel = TextStyle(fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.06.em, fontFeatureSettings = "tnum")
+val Sans = FontFamily(sans(400), sans(500), sans(560))
+val Code = FontFamily(code(400), code(500))
+val Serif = FontFamily(Font(R.font.instrument_serif))
+val Pixel = FontFamily(Font(R.font.geist_pixel))
+
+private val Trim = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)
+
+private fun style(family: FontFamily, size: Int, line: Int, weight: Int = 400) =
+    TextStyle(fontFamily = family, fontSize = size.sp, lineHeight = line.sp, fontWeight = FontWeight(weight), lineHeightStyle = Trim)
+
+/** The type scale from the design pass, in sp on a 360 dp phone. */
+object Type {
+    val heading = style(Serif, 34, 40)
+    val title = style(Sans, 24, 32, 500)
+    val sentence = style(Sans, 20, 34)
+    val body = style(Sans, 16, 24)
+    val bodyMedium = style(Sans, 16, 24, 500)
+    val small = style(Sans, 14, 20)
+    val smallMedium = style(Sans, 14, 20, 500)
+    /** Small uppercase labels, times and small numbers, with tabular figures. */
+    val label = style(Code, 12, 16).copy(letterSpacing = 0.06.em, fontFeatureSettings = "tnum")
+    fun number(size: Int, line: Int) = style(Pixel, size, line)
+}
 
 private fun typography(): Typography {
     val base = Typography()
-    fun TextStyle.f() = copy(fontFamily = Flex, fontFeatureSettings = "tnum")
+    fun TextStyle.s() = copy(fontFamily = Sans, fontFeatureSettings = "tnum")
     return Typography(
-        displayLarge = base.displayLarge.f(), displayMedium = base.displayMedium.f(), displaySmall = base.displaySmall.f(),
-        headlineLarge = base.headlineLarge.f(), headlineMedium = base.headlineMedium.f(), headlineSmall = base.headlineSmall.f(),
-        titleLarge = base.titleLarge.f().copy(fontWeight = FontWeight(500)), titleMedium = base.titleMedium.f(), titleSmall = base.titleSmall.f(),
-        bodyLarge = base.bodyLarge.f(), bodyMedium = base.bodyMedium.f(), bodySmall = base.bodySmall.f(),
-        labelLarge = base.labelLarge.f(), labelMedium = base.labelMedium.f(), labelSmall = base.labelSmall.f(),
+        displayLarge = base.displayLarge.s(), displayMedium = base.displayMedium.s(), displaySmall = base.displaySmall.s(),
+        headlineLarge = base.headlineLarge.s(), headlineMedium = base.headlineMedium.s(), headlineSmall = base.headlineSmall.s(),
+        titleLarge = Type.title, titleMedium = Type.bodyMedium, titleSmall = Type.smallMedium,
+        bodyLarge = Type.body, bodyMedium = Type.small, bodySmall = Type.small.copy(fontSize = 12.sp, lineHeight = 16.sp),
+        labelLarge = Type.smallMedium, labelMedium = base.labelMedium.s(), labelSmall = base.labelSmall.s(),
     )
 }
 
@@ -103,31 +136,24 @@ fun isDark(settings: Settings, system: Boolean) = when (settings.theme) {
     ThemeMode.DARK -> true
 }
 
+fun accentOf(settings: Settings, dark: Boolean): Color =
+    if (dark) DarkAccents.getOrElse(settings.darkAccent) { DarkAccents[0] }.color
+    else LightAccents.getOrElse(settings.lightAccent) { LightAccents[0] }.color
+
 /** Two hand-tuned palettes, not Android's dynamic colour; the chosen accent replaces the primary colour. */
 @Composable
 fun AirBuzzTheme(settings: Settings, content: @Composable () -> Unit) {
     val dark = isDark(settings, isSystemInDarkTheme())
-    val accent = if (dark) DarkAccents.getOrElse(settings.darkAccent) { DarkAccents[0] }.color
-        else LightAccents.getOrElse(settings.lightAccent) { LightAccents[0] }.color
-    val air = airColors(dark, accent)
-    val scheme = if (dark) darkColorScheme(
-        primary = accent, onPrimary = Color(0xFF0E0E0E), primaryContainer = air.tint, onPrimaryContainer = accent,
-        secondary = accent, onSecondary = Color(0xFF0E0E0E), secondaryContainer = air.tintStrong, onSecondaryContainer = Color(0xFFECECEA),
-        background = Color(0xFF0E0E0E), onBackground = Color(0xFFECECEA),
-        surface = Color(0xFF0E0E0E), onSurface = Color(0xFFECECEA), surfaceVariant = Color(0xFF191919), onSurfaceVariant = air.muted,
-        surfaceContainerLowest = Color(0xFF191919), surfaceContainerLow = Color(0xFF191919), surfaceContainer = Color(0xFF191919),
-        surfaceContainerHigh = Color(0xFF222221), surfaceContainerHighest = Color(0xFF2B2B2A),
-        outline = air.muted, outlineVariant = air.line, error = Color(0xFFFF8A80),
-    ) else lightColorScheme(
-        primary = accent, onPrimary = Color.White, primaryContainer = air.tint, onPrimaryContainer = accent,
-        secondary = accent, onSecondary = Color.White, secondaryContainer = air.tintStrong, onSecondaryContainer = Color(0xFF141414),
-        background = Color(0xFFF3F3F1), onBackground = Color(0xFF141414),
-        surface = Color(0xFFF3F3F1), onSurface = Color(0xFF141414), surfaceVariant = Color.White, onSurfaceVariant = air.muted,
-        surfaceContainerLowest = Color.White, surfaceContainerLow = Color.White, surfaceContainer = Color.White,
-        surfaceContainerHigh = Color(0xFFF8F8F6), surfaceContainerHighest = Color(0xFFEDEDEA),
-        outline = air.muted, outlineVariant = air.line, error = Color(0xFFB3261E),
+    val a = airColors(dark, accentOf(settings, dark))
+    val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
+        primary = a.accent, onPrimary = a.onInk, primaryContainer = a.tint, onPrimaryContainer = a.accent,
+        secondary = a.ink, onSecondary = a.onInk, secondaryContainer = a.selected, onSecondaryContainer = a.ink,
+        background = a.bg, onBackground = a.ink, surface = a.bg, onSurface = a.ink, surfaceVariant = a.surface, onSurfaceVariant = a.muted,
+        surfaceContainerLowest = a.surface, surfaceContainerLow = a.surface, surfaceContainer = a.surface,
+        surfaceContainerHigh = a.surface, surfaceContainerHighest = a.selected, surfaceTint = Color.Transparent,
+        outline = a.outline, outlineVariant = a.line, error = a.warn, scrim = Color.Black,
     )
-    CompositionLocalProvider(LocalAirColors provides air) {
+    CompositionLocalProvider(LocalAirColors provides a) {
         MaterialTheme(colorScheme = scheme, typography = typography(), content = content)
     }
 }
