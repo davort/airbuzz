@@ -43,6 +43,7 @@ class SettingsStore(context: Context) {
         put("theme", s.theme.name)
         put("lightAccent", s.lightAccent)
         put("darkAccent", s.darkAccent)
+        put("onboarded", s.onboarded)
     }
 
     private fun decode(o: JSONObject): Settings {
@@ -70,6 +71,8 @@ class SettingsStore(context: Context) {
             theme = runCatching { ThemeMode.valueOf(o.getString("theme")) }.getOrDefault(d.theme),
             lightAccent = o.optInt("lightAccent", d.lightAccent),
             darkAccent = o.optInt("darkAccent", d.darkAccent),
+            // Settings saved before 0.4 belong to someone who already set AirBuzz up.
+            onboarded = o.optBoolean("onboarded", true),
         )
     }
 }

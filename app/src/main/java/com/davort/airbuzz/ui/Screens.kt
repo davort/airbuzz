@@ -6,10 +6,6 @@ import android.provider.Settings as SystemSettings
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -31,16 +27,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -50,11 +46,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -112,6 +103,10 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
             } },
             { GroupRow({ shareLog(context, engine) }) {
                 TwoLine("Share log", Modifier.weight(1f)) { Label("When something didn't buzz") }
+                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+            } },
+            { GroupRow({ engine.store.update { it.copy(onboarded = false) }; go(Screen.HOME) }) {
+                TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
         ))
@@ -212,8 +207,8 @@ fun testSteps(r: BandResult?, buzzedMs: Long?): List<Step> {
 }
 
 /**
- * Test buzz: the Air drawn from the front (decision 27). Arcs pulse while AirBuzz connects; when the Air confirms the
- * tap, the band shakes, vibration arcs spread to both sides and stay, and the phone gives one haptic tap.
+ * Test buzz: the pebble drawing (decision 38). Grey rings pulse while AirBuzz connects; when the Air confirms the tap,
+ * the capsule shakes, accent rings appear and stay, and the phone gives one haptic tap.
  */
 @Composable
 fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
@@ -249,8 +244,11 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     Page {
         ScreenBar("Test buzz", onBack = onBack)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AirDrawing(connecting = connecting, buzzed = buzzedMs != null, shake = shake.value)
-            HGap(16)
+            // The capsule shakes on the tap: a fading wobble of up to 4 dp.
+            val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 40f) * (1f - shake.value) * with(LocalDensity.current) { 4.dp.toPx() } else 0f
+            AirPebble(96.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
+                if (buzzedMs != null) "Your Air buzzed" else if (connecting) "Connecting to your Air" else "Your Air")
+            HGap(32)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Label("Time to tap")
                 val (time, color) = when {
@@ -336,57 +334,6 @@ fun shareLog(context: android.content.Context, engine: Engine) {
         appendLine(engine.debug.text())
     }
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share log"))
-}
-
-/** The Air from the front: the pebble in its cradle, sensor side up, strap behind (viewBox 120×104). */
-@Composable
-fun AirDrawing(connecting: Boolean, buzzed: Boolean, shake: Float) {
-    val a = LocalAirColors.current
-    val pulse = if (connecting) {
-        rememberInfiniteTransition(label = "arcs").animateFloat(0f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart), label = "pulse").value
-    } else 0f
-    Canvas(Modifier.size(width = 138.dp, height = 120.dp).semantics {
-        contentDescription = if (buzzed) "Your Air buzzed" else if (connecting) "Connecting to your Air" else "Your Air"
-    }) {
-        val k = size.width / 120f
-        val dx = if (shake in 0.001f..0.999f) sin(shake * 40f) * (1f - shake) * 4f * k else 0f
-        if (connecting) {
-            listOf(86f, 92f, 98f).forEachIndexed { i, x ->
-                val wave = (pulse - i / 3f + 1f) % 1f
-                arc(x, i, 1f, a.muted.copy(alpha = 1f - wave * 0.8f), k)
-            }
-        }
-        if (buzzed) {
-            val spread = 0.6f + 0.4f * if (shake > 0f) shake else 1f
-            listOf(86f, 92f, 98f).forEachIndexed { i, x -> arc(60f + (x - 60f) * spread, i, 1f, a.accent, k) }
-            listOf(34f, 28f, 22f).forEachIndexed { i, x -> arc(60f + (x - 60f) * spread, i, -1f, a.accent, k) }
-        }
-        translate(left = dx) {
-            fun rect(x: Float, y: Float, w: Float, h: Float) = Offset(x * k, y * k) to Size(w * k, h * k)
-            rect(48f, 0f, 24f, 104f).let { (o, s) -> drawRoundRect(a.context, o, s, CornerRadius(4f * k)) }
-            rect(40f, 15f, 40f, 74f).let { (o, s) ->
-                drawRoundRect(a.surface, o, s, CornerRadius(20f * k))
-                drawRoundRect(a.ink, o, s, CornerRadius(20f * k), style = Stroke(1.6f * k))
-            }
-            rect(45f, 20f, 30f, 64f).let { (o, s) ->
-                drawRoundRect(Pebble, o, s, CornerRadius(15f * k))
-                if (a.dark) drawRoundRect(a.muted, o, s, CornerRadius(15f * k), style = Stroke(1f * k))
-            }
-            drawCircle(Color(0xFF54575C), 2.6f * k, Offset(60f * k, 33f * k))
-            drawCircle(Color(0xFF54575C), 2.6f * k, Offset(60f * k, 71f * k))
-            listOf(54.5f, 58.5f, 62.5f).forEach { x ->
-                drawRoundRect(Color(0xFF888B90), Offset(x * k, 50.5f * k), Size(3f * k, 3f * k), CornerRadius(0.8f * k))
-            }
-        }
-    }
-}
-
-/** One vibration arc; [i] 0–2 from the band outwards, [side] 1 for right and -1 for left. */
-private fun DrawScope.arc(x: Float, i: Int, side: Float, color: Color, k: Float) {
-    val (top, bulge) = listOf(44f to 4f, 38f to 8f, 32f to 12f)[i]
-    val bottom = 104f - top
-    val path = Path().apply { moveTo(x * k, top * k); quadraticTo((x + side * bulge) * k, 52f * k, x * k, bottom * k) }
-    drawPath(path, color, style = Stroke(1.8f * k, cap = StrokeCap.Round))
 }
 
 /** 0–8 s at 1/8 of the width per second, with the 3 s target shaded and the steps drawn as fading ink. */

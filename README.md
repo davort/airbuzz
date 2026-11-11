@@ -14,6 +14,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.3.3** (versionCode 6): Settings moved from the Home top bar to the Air shelf, a card floating at the bottom of Home that shows when the Air was last reached and opens Settings (brief decision 33). When something stops AirBuzz, the shelf turns into that one problem with its fix: Bluetooth off, Nearby devices or notification access not allowed, no paired Air, or the Air out of reach. It replaces the problem banner. The Home buzz strip is as tall as the one on Activity (decision 34).
 - **0.3.4** (versionCode 7): the Air shelf shows the Settings icon instead of a chevron, and its dot is green only while AirBuzz is on and has reached the Air (grey before, when off, or paused). Switches are filled with the accent colour when on.
 - **0.3.5** (versionCode 8): the Pause sheet's last option is "Turn off" instead of "Until I turn it back on": it switches AirBuzz off, so nothing buzzes, not even chosen callers, and Home says Off (brief decision 37). Timed pauses still let chosen callers ring.
+- **0.4** (versionCode 9): onboarding on first launch (brief decision 39): seven steps (Welcome, Link your Air, Keep AirBuzz running, Notification access, Who can ring, Which apps, Feel it) that resume until done; existing installs skip it. The pebble drawing of the Air on Test buzz, the Home shelf and onboarding (decision 38). Settings has "Show onboarding again" for testing. Rule blanks: the words share the sentence's baseline and the arrow centres on the lowercase letters.
 
 ## What it does
 
@@ -32,7 +33,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 | `rules/` | Pure decisions: who may ring, which apps tap, quiet rules, the 15 s merge, phone number matching with libphonenumber. Unit tested. |
 | `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages. Android keeps a notification listener running, so there is no foreground service or permanent notification; the only notification is "Ringing your Air" with Silence during a call. |
 | `data/` | Settings and the week's activity log, kept on the phone only. |
-| `ui/` | Jetpack Compose screens in the approved look (design pass in Paper, brief decisions 20–34): rules as sentences with tinted blanks that each open one bottom sheet. `Theme.kt` holds the colour and type tokens. |
+| `ui/` | Jetpack Compose screens in the approved look (design pass in Paper, brief decisions 20–39): rules as sentences with tinted blanks that each open one bottom sheet. `Theme.kt` holds the colour and type tokens; `Onboarding.kt` is the first-launch setup. |
 | `Engine.kt` | Connects the two: one queue of band commands, where a call goes ahead of messages. |
 
 Choices that came from measuring on a real Air (test app 0.2–0.4 in the private research repo):

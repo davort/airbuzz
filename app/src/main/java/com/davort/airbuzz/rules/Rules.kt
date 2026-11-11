@@ -30,6 +30,8 @@ data class Settings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val lightAccent: Int = 0,
     val darkAccent: Int = 0,
+    /** False until onboarding is finished (decision 39). */
+    val onboarded: Boolean = false,
 )
 
 /** Who is calling, as far as the call notification says. */

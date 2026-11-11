@@ -55,6 +55,9 @@ object Setup {
         return if (Build.VERSION.SDK_INT >= 33) cdm.myAssociations.isNotEmpty() else @Suppress("DEPRECATION") cdm.associations.isNotEmpty()
     }
 
+    /** The phone maker as people know it, such as "OPPO" or "Samsung", for the background activity step. */
+    val maker: String get() = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+
     val isXiaomi: Boolean get() = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) ||
         Build.BRAND.lowercase() in setOf("xiaomi", "redmi", "poco")
 

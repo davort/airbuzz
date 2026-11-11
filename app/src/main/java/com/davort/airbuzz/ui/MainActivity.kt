@@ -26,23 +26,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,6 +125,10 @@ fun App(engine: Engine, settings: AirSettings) {
     val go: (Screen) -> Unit = { screen = it }
     val open: (SheetKind) -> Unit = { sheet = it }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+        if (!settings.onboarded) {
+            OnboardingScreen(engine, settings)
+            return@Box
+        }
         when (screen) {
             Screen.HOME -> Home(engine, settings, sheet, go, open)
             Screen.SETTINGS -> SettingsScreen(engine, settings, go)
@@ -365,10 +369,10 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifi
                 CurveIcon(problem.icon, 22.dp, a.warn, 1.8f)
             }
         } else {
-            Box(Modifier.width(40.dp), contentAlignment = Alignment.Center) {
-                AirPebble(40.dp)
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                AirPebble(36.dp)
                 // A 10 dp green dot with a 2 dp ring of the card colour.
-                Box(Modifier.align(Alignment.TopEnd).padding(end = 3.dp).size(14.dp).clip(CircleShape).background(a.surface),
+                Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = 4.dp).size(14.dp).clip(CircleShape).background(a.surface),
                     contentAlignment = Alignment.Center) { Dot(if (live) a.ok else a.muted, 10.dp) }
             }
         }

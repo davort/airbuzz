@@ -1,5 +1,11 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -63,9 +69,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.davort.airbuzz.data.Entry
 import com.davort.airbuzz.data.Kind
 import com.davort.airbuzz.data.Result
@@ -89,6 +95,11 @@ enum class Curve(val d: String) {
     BLUETOOTH_OFF("M12 12v9l4.5-4.5L14 14M12 12V3l4.5 4.5L14 10M12 12l-5 5M7 7l5 5M4 4l16 16"),
     /** Three slider lines with knobs, for Settings. */
     TUNE("M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1M15 5v4M9 10v4M17 15v4"),
+    BLUETOOTH("M7 7l10 10-5 5V2l5 5L7 17"),
+    LINK("M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"),
+    BELL("M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0"),
+    PHONE("M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"),
+    APPS("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"),
 }
 
 @Composable
@@ -100,17 +111,35 @@ fun CurveIcon(curve: Curve, size: Dp = 24.dp, color: Color = LocalAirColors.curr
     }
 }
 
-/** The Air seen from the front, small: strap, pebble and its two dots. */
+/** What the pebble drawing shows around the Air: nothing, grey rings pulsing while connecting, or accent rings for a tap. */
+enum class Buzz { REST, CONNECTING, TAPPED }
+
+/**
+ * The Air as its black capsule seen from above (decision 38). The capsule fills the composable, half as tall as it is
+ * wide, so its left edge lines up with text; tap rings are drawn outside it, up to 18 dp into the margin. [shiftPx] moves
+ * the capsule sideways for the shake on a tap.
+ */
 @Composable
-fun AirPebble(height: Dp = 40.dp) {
+fun AirPebble(width: Dp, buzz: Buzz = Buzz.REST, shiftPx: Float = 0f, description: String? = null) {
     val a = LocalAirColors.current
-    Canvas(Modifier.size(width = height * 0.6f, height = height)) {
-        val k = size.height / 20f
-        drawRoundRect(a.context, Offset(3.5f * k, 0f), Size(5f * k, 20f * k), CornerRadius(1f * k))
-        drawRoundRect(Pebble, Offset(1f * k, 2.5f * k), Size(10f * k, 15f * k), CornerRadius(5f * k))
-        drawRoundRect(a.ink, Offset(1f * k, 2.5f * k), Size(10f * k, 15f * k), CornerRadius(5f * k), style = Stroke(1f * k))
-        drawCircle(Color(0xFF888B90), 0.9f * k, Offset(6f * k, 6.5f * k))
-        drawCircle(Color(0xFF888B90), 0.9f * k, Offset(6f * k, 13.5f * k))
+    val pulse = if (buzz == Buzz.CONNECTING) {
+        rememberInfiniteTransition(label = "rings").animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse").value
+    } else 1f
+    Canvas(Modifier.size(width, width / 2).then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)) {
+        val h = size.height
+        val r = h / 2
+        val ring = when (buzz) { Buzz.CONNECTING -> a.muted; Buzz.TAPPED -> a.accent; Buzz.REST -> null }
+        if (ring != null) listOf(9.dp to 1f, 17.dp to if (buzz == Buzz.CONNECTING) 0.55f else 0.45f).forEach { (o, op) ->
+            val p = o.toPx()
+            drawRoundRect(ring.copy(alpha = op * pulse), Offset(-p, -p), Size(size.width + 2 * p, h + 2 * p), CornerRadius(r + p),
+                style = Stroke(2.4.dp.toPx()))
+        }
+        translate(left = shiftPx) {
+            drawRoundRect(Pebble, cornerRadius = CornerRadius(r))
+            if (a.dark) drawRoundRect(a.muted, cornerRadius = CornerRadius(r), style = Stroke(1.dp.toPx()))
+            if (width >= 48.dp) drawLine(Color(0xFF3A3C40), Offset(size.width * 0.15f, h * 0.22f), Offset(size.width * 0.65f, h * 0.22f),
+                h * 0.075f, StrokeCap.Round)
+        }
     }
 }
 
@@ -148,9 +177,11 @@ fun GlyphIcon(glyph: Glyph, size: Dp = 24.dp, color: Color = LocalAirColors.curr
 /** The small down arrow inside a blank. */
 @Composable
 fun Caret(color: Color) {
-    Canvas(Modifier.size(width = 13.dp, height = 10.dp)) {
+    Canvas(Modifier.size(width = 13.dp, height = 11.dp)) {
         val k = size.width / 8f
-        val path = Path().apply { moveTo(1f * k, 1.5f * k + 1f); lineTo(4f * k, 4.5f * k + 1f); lineTo(7f * k, 1.5f * k + 1f) }
+        // Lowered so the arrow centres on the lowercase letters beside it, not on the pill.
+        val y = 1.5.dp.toPx()
+        val path = Path().apply { moveTo(1f * k, 1.5f * k + y); lineTo(4f * k, 4.5f * k + y); lineTo(7f * k, 1.5f * k + y) }
         drawPath(path, color, style = Stroke(1.6f * k, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
@@ -200,7 +231,8 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                             .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(part.value, style = style.copy(fontWeight = FontWeight(560)), color = a.accent, softWrap = false, maxLines = 1)
+                        // A line as tall as the blank, so the words centre in it and share the sentence's baseline.
+                        Text(part.value, style = style.copy(fontWeight = FontWeight(560), lineHeight = 30.sp), color = a.accent, softWrap = false, maxLines = 1)
                         Spacer(Modifier.width(3.dp))
                         Caret(a.accent)
                     }
