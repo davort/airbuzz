@@ -21,6 +21,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -158,24 +159,17 @@ fun App(engine: Engine, settings: AirSettings) {
         }
         // Expand (decision 40): the shelf grows into Settings and Back shrinks Settings into the shelf. [reveal] is 0 on
         // Home and 1 on Settings; every other move is a cut.
-        // [title] fades Settings' title in only once the panel has filled the screen, and out before it shrinks.
+        // One linear timeline drives the panel and every layer of Settings, so the reveal reads as one motion.
         val reveal = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
-        val title = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
         LaunchedEffect(screen) {
             when {
-                screen == Screen.SETTINGS && from == Screen.HOME -> {
-                    reveal.animateTo(1f, tween(Motion.EXPAND, easing = Motion.Emph))
-                    title.animateTo(1f, tween(Motion.TITLE, easing = Motion.Out))
-                }
-                screen == Screen.HOME && from == Screen.SETTINGS -> {
-                    title.animateTo(0f, tween(Motion.TITLE_BACK, easing = Motion.In))
-                    reveal.animateTo(0f, tween(Motion.EXPAND_BACK, easing = Motion.Emph))
-                }
-                else -> { val v = if (screen == Screen.SETTINGS) 1f else 0f; reveal.snapTo(v); title.snapTo(v) }
+                screen == Screen.SETTINGS && from == Screen.HOME -> reveal.animateTo(1f, tween(Motion.EXPAND, easing = LinearEasing))
+                screen == Screen.HOME && from == Screen.SETTINGS -> reveal.animateTo(0f, tween(Motion.EXPAND_BACK, easing = LinearEasing))
+                else -> reveal.snapTo(if (screen == Screen.SETTINGS) 1f else 0f)
             }
         }
-        val p = reveal.value
-        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && title.value < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && p > 0f)
+        val t = reveal.value
+        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && t < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && t > 0f)
         // While it grows, Home stays underneath in the same slot, so it keeps its state.
         when (if (growing) Screen.HOME else screen) {
             Screen.HOME -> Home(engine, settings, sheet, go, open)
@@ -185,7 +179,7 @@ fun App(engine: Engine, settings: AirSettings) {
             Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
             Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
         }
-        if (growing) ExpandingSettings(p, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, titleIn = title.value) }
+        if (growing) ExpandingSettings(t, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, reveal = t) }
     }
     sheet?.let { kind ->
         val close = { sheet = null }
@@ -426,21 +420,20 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
 }
 
 /**
- * Settings growing out of the shelf (Expand, decision 40), drawn over Home while [p] runs 0 → 1, and back for Back.
- * The card grows from the shelf's bounds to the whole screen and turns from the card colour to the page colour. The
- * shelf's own content ([ghost]) fades out in the first quarter; Settings, laid out at full size so nothing reflows or
- * stretches, fades in and rises 8 dp from 35 %. Its title waits until the panel fills the screen. Home dims under it.
+ * Settings growing out of the shelf (Expand, decision 40), drawn over Home while the timeline [t] runs 0 → 1, and back
+ * for Back. Over the first 65 % the card grows from the shelf's bounds to the whole screen and turns from the card
+ * colour to the page colour, while the shelf's own content ([ghost]) fades out. Settings, laid out at full size so
+ * nothing reflows or stretches, reveals its own layers on the same timeline. Home dims under it.
  */
 @Composable
-fun ExpandingSettings(p: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
+fun ExpandingSettings(t: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
     val a = LocalAirColors.current
+    val p = Motion.Emph.transform((t / 0.65f).coerceIn(0f, 1f))
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (a.dark) 0.45f else 0.25f) * p)))
     Box(Modifier.fillMaxSize().graphicsLayer { shape = GrowShape(p); clip = true }.background(lerp(a.surface, a.bg, p))) {
         val gone = (1f - p / 0.25f).coerceIn(0f, 1f)
         if (gone > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = gone }) { ghost() }
-        val show = ((p - 0.35f) / 0.5f).coerceIn(0f, 1f)
-        val rise = with(LocalDensity.current) { 8.dp.toPx() }
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = show; translationY = rise * (1f - show) }) { content() }
+        content()
     }
 }
 

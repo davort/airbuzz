@@ -1,6 +1,9 @@
 package com.davort.airbuzz.ui
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 
 /**
  * Motion from the motion study (brief decision 40). Compose stretches every duration by Android's animator duration
@@ -16,10 +19,21 @@ object Motion {
     /** Material's emphasized curve, for the shelf growing into Settings. */
     val Emph = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    /** The shelf grows into Settings (Expand) in this long, then Settings' title rises into place over [TITLE]. */
-    const val EXPAND = 380
-    const val TITLE = 480
-    /** Back: the title sinks behind the Strength card over [TITLE_BACK], then the panel shrinks into the shelf. */
-    const val TITLE_BACK = 220
-    const val EXPAND_BACK = 260
+    /**
+     * The shelf opening Settings is one linear timeline of this length: the panel grows over its first 65 %, and the
+     * layers of Settings rise in staggered over it (see [parallax]). Back plays the same timeline in reverse, faster.
+     */
+    const val EXPAND = 460
+    const val EXPAND_BACK = 300
+}
+
+/**
+ * One layer of Settings in the shelf's reveal (decision 40). [t] is the shared timeline, 0 → 1. Layer 0 is the lowest on
+ * screen and starts first, near the shelf; each layer above starts 6 % later and travels 8 dp further, so the scene
+ * opens upward like parallax and the title, the top layer, rises 72 dp out from behind the Strength card.
+ */
+fun Modifier.parallax(t: Float, layer: Int): Modifier = graphicsLayer {
+    val k = Motion.Out.transform(((t - 0.1f - layer * 0.06f) / 0.4f).coerceIn(0f, 1f))
+    alpha = k
+    translationY = (1f - k) * (24 + layer * 8).dp.toPx()
 }
