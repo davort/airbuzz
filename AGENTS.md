@@ -1,13 +1,13 @@
 # AirBuzz app
 
-Davor owns this; it is his first Android project, so explain Android steps he must take in plain words. The plan, decisions and look are in the private repo `davort/airbuzz` (`design/BRIEF.md`), which also holds the band research and the test app. Never copy code from it, or from any other app, into this repo, which is GPL-3.0 and meant to be public.
+Davor owns this; it is his first Android project, so explain Android steps he must take in plain words. The plan, decisions and look are in the private repo `davort/airbuzz-research` (`design/BRIEF.md`), which also holds the band research and the test app. Never copy code from it, or from any other app, into this repo, which is GPL-3.0 and meant to be public.
 
 ## Rules
 
 - Every APK Davor installs gets a new `versionCode` and `versionName` in `app/build.gradle.kts` and a line under "Versions" in `README.md`.
 - Keep `THIRD_PARTY_NOTICES.md` current when adding code or assets from elsewhere. The band layer follows the MIT fitbit-air library; keep its notice.
 - Nothing involving Bluetooth, the band, permissions, background running, notifications, calls, or how a screen looks on his phone is verified until it has run on his phone (a Xiaomi on HyperOS). Orbs cannot run an Android emulator. Name what still needs the phone when you report.
-- Record hardware results in `davort/airbuzz` `research/README.md` under "Confirmed on hardware".
+- Record hardware results in `davort/airbuzz-research` `research/README.md` under "Confirmed on hardware".
 
 ## Checking UI in an orb
 
