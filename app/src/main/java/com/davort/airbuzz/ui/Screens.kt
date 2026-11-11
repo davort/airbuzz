@@ -110,6 +110,10 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 TwoLine("Setup checklist", Modifier.weight(1f)) { Label("Permissions and background") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
+            { GroupRow({ shareLog(context, engine) }) {
+                TwoLine("Share log", Modifier.weight(1f)) { Label("When something didn't buzz") }
+                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+            } },
         ))
         Spacer(Modifier.weight(1f))
         Group(listOf({
@@ -305,7 +309,7 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
             connecting -> Pill("Connecting…", {}, Modifier.fillMaxWidth(), enabled = false)
             failed -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill("Try again", { engine.clearTest(); engine.testBuzz() }, Modifier.weight(1f))
-                Pill("Share log", { shareLog(context, run?.lines.orEmpty(), r) }, Modifier.weight(1f), filled = false)
+                Pill("Share log", { shareLog(context, engine) }, Modifier.weight(1f), filled = false)
             }
             r != null && !didNotFeel -> {
                 Text("Did your Air buzz?", style = Type.bodyMedium, color = a.ink)
@@ -324,11 +328,12 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     }
 }
 
-private fun shareLog(context: android.content.Context, lines: List<String>, r: BandResult?) {
+/** Shares AirBuzz's own step log with the app version and phone model, for when something didn't buzz. */
+fun shareLog(context: android.content.Context, engine: Engine) {
+    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
     val text = buildString {
-        appendLine("AirBuzz Test buzz")
-        r?.let { appendLine("${it.message} · link ${it.link} · handshakes ${it.handshakes} · wrong keys ${it.wrongKeys} · lost races ${it.lostRaces}") }
-        lines.forEach { appendLine(it) }
+        appendLine("AirBuzz $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}")
+        appendLine(engine.debug.text())
     }
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share log"))
 }

@@ -10,6 +10,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.2** (versionCode 2): Golden Gate libraries linked for 16 KB pages; no permanent status notification or foreground service (the notification listener keeps AirBuzz running); Test buzz no longer counts on Home's buzz strip.
 - **0.3** (versionCode 3): the approved look from the first design pass (brief decisions 20–32): Google Sans Flex, Google Sans Code, Instrument Serif and Geist Pixel; cool grey palettes; slim segmented buttons; Pause from the Home switch with a paused card; "ignored" alerts; Activity one day at a time with totals and ignored-by-source rows; Test buzz with the front drawing of the Air, a 0–8 s timeline and Show details.
 - **0.3.1** (versionCode 4): a buzz that loses the Air to Google Health is tried again every 5 s instead of dropped: messages for up to 30 s, calls for as long as they ring (up to 60 s). 0.2 dropped a Telegram message this way on Davor's phone.
+- **0.3.2** (versionCode 5): AirBuzz keeps its own log of its last 500 steps (each call and message with the app and what the rules decided, every band step, retries, the notification listener connecting) and Settings has Share log. The phone's system log keeps only a few minutes. No message text or caller names go in it.
 
 ## What it does
 
@@ -36,7 +37,7 @@ Choices that came from measuring on a real Air (test app 0.2–0.4 in the privat
 - **The wrong key.** Every new Golden Gate stack is first offered a key AirBuzz doesn't have (`-10601`). Keeping the same stack up lets the band switch to `BOOTSTRAP`; restarting it fails every time.
 - **The fast-link request** (`CONNECTION_PRIORITY_HIGH`) goes out at once on the open link, but on a new connection only after AirBuzz's own session exists, so it can't help Google Health win the handshake race.
 
-Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. It never stores message text and has no internet permission.
+Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. Its step log (shared only when you press Share log) names apps and outcomes, never message text or callers. It never stores message text and has no internet permission.
 
 ## Build
 

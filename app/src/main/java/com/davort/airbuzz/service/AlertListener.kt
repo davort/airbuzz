@@ -46,6 +46,10 @@ class AlertListener : NotificationListenerService() {
         engine.onMessage(sbn.packageName, appLabel(sbn.packageName), chatName(n), moment())
     }
 
+    override fun onListenerConnected() { engine.note("Notification listener connected") }
+
+    override fun onListenerDisconnected() { engine.note("Notification listener disconnected") }
+
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         lastText -= sbn.key
         if (ringing.remove(sbn.key)) engine.onCallEnded(sbn.key)

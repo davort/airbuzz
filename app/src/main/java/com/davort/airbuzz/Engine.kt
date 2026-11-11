@@ -12,6 +12,7 @@ import com.davort.airbuzz.band.AirHaptics
 import com.davort.airbuzz.band.BandCommand
 import com.davort.airbuzz.band.BandResult
 import com.davort.airbuzz.data.ActivityLog
+import com.davort.airbuzz.data.DebugLog
 import com.davort.airbuzz.data.Entry
 import com.davort.airbuzz.data.Kind
 import com.davort.airbuzz.data.Result
@@ -66,8 +67,10 @@ data class TestRun(
 class Engine(private val app: Context) {
     val store = SettingsStore(app)
     val log = ActivityLog(app)
+    /** AirBuzz's own step log, shared from Settings. */
+    val debug = DebugLog(java.io.File(app.filesDir, "debug.log"))
     private val main = Handler(Looper.getMainLooper())
-    private val band = AirBand(app) { line -> Log.i(TAG, line); testLine(line) }
+    private val band = AirBand(app) { line -> note(line); testLine(line) }
 
     private val bandState = MutableStateFlow(BandState())
     val state: StateFlow<BandState> = bandState
@@ -103,7 +106,9 @@ class Engine(private val app: Context) {
     fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment) {
         if (running?.ringKey == key || queue.any { it.ringKey == key } || waiting.any { it.ringKey == key }) return
         val who = caller.name ?: caller.number ?: "Unknown caller"
-        when (val o = Rules.decideCall(caller, settings, moment, region)) {
+        val o = Rules.decideCall(caller, settings, moment, region)
+        note("Call from $appLabel (${if (caller.number != null) "number" else if (caller.name != null) "name only" else "no caller ID"}): ${outcome(o)}")
+        when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
             else -> {
                 val entry = Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.BUZZED)
@@ -128,6 +133,7 @@ class Engine(private val app: Context) {
 
     /** The call notification [key] went away or was answered. */
     fun onCallEnded(key: String) {
+        note("Call ended")
         if (running?.ringKey == key) band.stopRing()
         queue.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
         waiting.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
@@ -135,6 +141,7 @@ class Engine(private val app: Context) {
 
     /** Silence from the "Ringing your Air" notification. */
     fun silence() {
+        note("Silence pressed")
         running?.takeIf { it.ringKey != null }?.let { band.stopRing() }
         queue.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
         waiting.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
@@ -143,7 +150,9 @@ class Engine(private val app: Context) {
     // Messages
 
     fun onMessage(pkg: String, appLabel: String, who: String?, moment: Moment) {
-        when (val o = Rules.decideMessage(pkg, settings, moment, lastBuzzByApp[pkg])) {
+        val o = Rules.decideMessage(pkg, settings, moment, lastBuzzByApp[pkg])
+        note("Message from $appLabel: ${outcome(o)}")
+        when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.SKIPPED, o.reason))
             Outcome.Merge -> {
                 val merged = log.updateLast({ it.pkg == pkg && it.kind == Kind.MESSAGE && it.result == Result.BUZZED }) {
@@ -211,7 +220,7 @@ class Engine(private val app: Context) {
                 lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
             )
             if (retry) {
-                Log.i(TAG, "${r.message} Trying again in ${RETRY_MS / 1000} s")
+                note("${r.message} Trying again in ${RETRY_MS / 1000} s")
                 waiting += job
                 main.postDelayed({
                     if (waiting.remove(job)) {
@@ -220,6 +229,7 @@ class Engine(private val app: Context) {
                     }
                 }, RETRY_MS)
             } else {
+                if (failed) note("Gave up: ${r.message}")
                 job.done(r)
             }
             main.post { pump() }
@@ -232,6 +242,17 @@ class Engine(private val app: Context) {
     fun moment(doNotDisturb: Boolean, phoneInUse: Boolean): Moment {
         val c = Calendar.getInstance()
         return Moment(c.timeInMillis, c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE), doNotDisturb, phoneInUse)
+    }
+
+    fun note(line: String) {
+        Log.i(TAG, line)
+        debug.add(line)
+    }
+
+    private fun outcome(o: Outcome) = when (o) {
+        Outcome.Buzz -> "buzz"
+        Outcome.Merge -> "within 15 s of the last buzz, merged"
+        is Outcome.Skip -> "ignored (${o.reason})"
     }
 
     companion object {
