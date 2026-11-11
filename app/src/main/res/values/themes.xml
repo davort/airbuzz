@@ -1,0 +1,8 @@
+<resources>
+    <!-- The window behind Compose; AirBuzz draws its own light and dark palettes. -->
+    <style name="Theme.AirBuzz" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
