@@ -44,7 +44,7 @@ class AlertListener : NotificationListenerService() {
         val seen = lastText.put(sbn.key, text)
         if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
         if (lastText.size > 500) lastText.clear()
-        engine.onMessage(sbn.packageName, appLabel(sbn.packageName), chatName(n), moment(), sbn.postTime)
+        engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), chatName(n), moment(), sbn.postTime)
     }
 
     override fun onListenerConnected() { engine.note("Notification listener connected") }
@@ -58,9 +58,11 @@ class AlertListener : NotificationListenerService() {
         requestRebind(ComponentName(this, AlertListener::class.java))
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+    override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         lastText -= sbn.key
         if (ringing.remove(sbn.key)) engine.onCallEnded(sbn.key)
+        // Only the user's own dismissals count as seen: apps also remove and repost notifications on their own.
+        else if (reason == REASON_CLICK || reason == REASON_CANCEL || reason == REASON_CANCEL_ALL) engine.onMessageDismissed(sbn.key)
     }
 
     private enum class CallState { INCOMING, OTHER, NONE }
