@@ -14,6 +14,24 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -118,24 +136,37 @@ fun rememberNow(everyMs: Long = 30_000): Long {
 @Composable
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
+    var from by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
+    val go: (Screen) -> Unit = { from = screen; screen = it }
     BackHandler(screen != Screen.HOME) {
-        screen = if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME
+        go(if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME)
     }
-    val go: (Screen) -> Unit = { screen = it }
     val open: (SheetKind) -> Unit = { sheet = it }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         if (!settings.onboarded) {
             OnboardingScreen(engine, settings)
             return@Box
         }
-        when (screen) {
-            Screen.HOME -> Home(engine, settings, sheet, go, open)
-            Screen.SETTINGS -> SettingsScreen(engine, settings, go)
-            Screen.APPEARANCE -> AppearanceScreen(engine, settings) { screen = Screen.SETTINGS }
-            Screen.TEST -> TestBuzzScreen(engine) { screen = Screen.HOME }
-            Screen.ACTIVITY -> ActivityScreen(engine, open) { screen = Screen.HOME }
-            Screen.SETUP -> SetupScreen(engine, go) { screen = Screen.SETTINGS }
+        // Anchor (decision 40): Home's shelf stays put and becomes Settings' last row while Settings fades in above it;
+        // Back fades Settings out over Home, faster. Every other move is a cut.
+        AnimatedContent(screen, label = "screen", transitionSpec = {
+            when {
+                initialState == Screen.HOME && targetState == Screen.SETTINGS ->
+                    fadeIn(tween(Motion.ANCHOR * 6 / 10, easing = Motion.Out)) togetherWith ExitTransition.KeepUntilTransitionsFinished
+                initialState == Screen.SETTINGS && targetState == Screen.HOME ->
+                    (EnterTransition.None togetherWith fadeOut(tween(Motion.ANCHOR_BACK, easing = Motion.In))).apply { targetContentZIndex = -1f }
+                else -> EnterTransition.None togetherWith ExitTransition.None
+            }
+        }) { shown ->
+            when (shown) {
+                Screen.HOME -> Home(engine, settings, sheet, go, open)
+                Screen.SETTINGS -> SettingsScreen(engine, settings, go, play = from == Screen.HOME)
+                Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
+                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
+                Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
+                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+            }
         }
     }
     sheet?.let { kind ->
@@ -182,14 +213,10 @@ fun lastReached(bandReachedAt: Long?, entries: List<Entry>): Long? =
 fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit, open: (SheetKind) -> Unit) {
     val context = LocalContext.current
     val a = LocalAirColors.current
-    val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val tick = rememberResumeTick()
     val now = rememberNow()
     val apps = remember(tick) { installedApps(context) }
-    val reached = lastReached(band.lastReachedAt, entries)
-    val problem = remember(tick, band.lastError, reached) { firstProblem(context, band.lastError, reached) }
-    val fixer = rememberFixer(go) {}
     val paused = s.enabled && s.pausedUntil > now
     val notificationsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -198,11 +225,18 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             // Top bar: title, state and switch (decision 20). Settings is the Air shelf (decision 33).
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("AirBuzz", style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).semantics { heading() })
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    when {
-                        paused -> { GlyphIcon(Glyph.PAUSE, 16.dp, a.muted, 2.4f); HGap(4); Text("Paused", style = Type.smallMedium, color = a.muted) }
-                        s.enabled -> { Dot(a.ok); HGap(6); Text("On", style = Type.smallMedium, color = a.ink) }
-                        else -> { Dot(a.muted); HGap(6); Text("Off", style = Type.smallMedium, color = a.muted) }
+                // The status rolls: the old word leaves upward, the new one rises in (decision 40).
+                val roll = with(LocalDensity.current) { 10.dp.roundToPx() }
+                AnimatedContent(when { paused -> 1; s.enabled -> 0; else -> 2 }, label = "status", contentAlignment = Alignment.CenterEnd, transitionSpec = {
+                    (fadeIn(tween(200, easing = Motion.Out)) + slideInVertically(tween(200, easing = Motion.Out)) { roll }) togetherWith
+                        (fadeOut(tween(150, easing = Motion.In)) + slideOutVertically(tween(150, easing = Motion.In)) { -roll })
+                }) { state ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when (state) {
+                            1 -> { GlyphIcon(Glyph.PAUSE, 16.dp, a.muted, 2.4f); HGap(4); Text("Paused", style = Type.smallMedium, color = a.muted) }
+                            0 -> { Dot(a.ok); HGap(6); Text("On", style = Type.smallMedium, color = a.ink) }
+                            else -> { Dot(a.muted); HGap(6); Text("Off", style = Type.smallMedium, color = a.muted) }
+                        }
                     }
                 }
                 AirSwitch(s.enabled && !paused, { on ->
@@ -218,7 +252,11 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 }, Modifier.semantics { contentDescription = "AirBuzz" })
             }
 
-            if (paused) {
+            // The paused card and the day's strip swap in place; the space between them eases to the new height.
+            AnimatedContent(paused, label = "paused", transitionSpec = {
+                fadeIn(tween(240, easing = Motion.Out)) togetherWith fadeOut(tween(150, easing = Motion.In)) using
+                    SizeTransform(clip = false) { _, _ -> tween(240, easing = Motion.InOut) }
+            }) { pausedNow -> if (pausedNow) {
                 PausedCard(s, now, onResume = { engine.store.update { it.copy(pausedUntil = 0L) } }) { open(SheetKind.PAUSE) }
             } else {
                 val start = dayStart(now = now)
@@ -235,7 +273,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                         GlyphIcon(Glyph.CHEVRON, 14.dp, a.muted, 2.4f)
                     }
                 }
-            }
+            } }
 
             val who = when (s.callMode) {
                 CallMode.CHOSEN -> summarize(s.people.map { it.name }, "nobody yet")
@@ -272,21 +310,20 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             val recent = entries.filter { it.kind != Kind.TEST }.takeLast(3).reversed()
             Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (recent.isEmpty()) Text("Nothing yet. Calls and messages appear here with what AirBuzz did.", style = Type.small, color = a.muted)
-                recent.forEach { HistoryRow(it) }
+                // Rows there when Home opens stand still; a new one opens its height and fades in at the top.
+                val seen = remember { recent.map { it.time }.toSet() }
+                recent.forEach { e ->
+                    key(e.time) {
+                        val shown = remember { MutableTransitionState(e.time in seen).apply { targetState = true } }
+                        AnimatedVisibility(shown, enter = expandVertically(tween(240, easing = Motion.InOut), Alignment.Top) + fadeIn(tween(240, easing = Motion.Out)),
+                            exit = ExitTransition.None) { HistoryRow(e) }
+                    }
+                }
             }
             // Room for the shelf: its 68 dp and 16 dp margin, plus the usual 12 dp gap.
             Spacer(Modifier.height(64.dp))
         }
-        // The shelf floats over the list, which fades out under it.
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp)
-            .background(Brush.verticalGradient(0f to Color.Transparent, 0.55f to a.bg)))
-        val live = s.enabled && !paused && reached != null
-        AirShelf(
-            problem.takeIf { s.enabled }, live,
-            if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
-            Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
-            onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
-        ) { go(Screen.SETTINGS) }
+        ShelfFor(engine, s, go)
     }
 }
 
@@ -347,43 +384,106 @@ fun firstProblem(context: android.content.Context, lastError: String?, reached: 
 }
 
 /**
- * The card floating at the bottom of Home (decision 33): it opens Settings, and carries the one problem when something
- * breaks, at the same height. The dot is green only while AirBuzz is on and has reached the Air. Light mode casts a
- * neutral shadow; dark mode glows in the accent, or in warn for a problem.
+ * The Air shelf and the fade under it, at the bottom of Home and, as Settings' last row, at the same spot in Settings
+ * (Anchor, decision 40). On Home it opens Settings; in Settings it ends in Test and its glow fades out when [glowFrom]
+ * is 1.
  */
 @Composable
-fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
+fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit, inSettings: Boolean = false, glowFrom: Float = 1f) {
+    val context = LocalContext.current
+    val a = LocalAirColors.current
+    val band by engine.state.collectAsStateWithLifecycle()
+    val entries by engine.log.entries.collectAsStateWithLifecycle()
+    val tick = rememberResumeTick()
+    val now = rememberNow()
+    val reached = lastReached(band.lastReachedAt, entries)
+    val problem = remember(tick, band.lastError, reached) { firstProblem(context, band.lastError, reached) }
+    val fixer = rememberFixer(go) {}
+    val paused = s.enabled && s.pausedUntil > now
+    val live = s.enabled && !paused && reached != null
+    val glow = remember { Animatable(if (inSettings) glowFrom else 1f) }
+    if (inSettings) LaunchedEffect(Unit) { glow.animateTo(0f, tween(Motion.ANCHOR, easing = Motion.Out)) }
+    // The list fades out under the shelf.
+    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp)
+        .background(Brush.verticalGradient(0f to Color.Transparent, 0.55f to a.bg)))
+    AirShelf(
+        problem.takeIf { s.enabled }, live,
+        when { reached == null -> "Not reached yet"; live && !inSettings -> "Connected · reached ${timeOf(reached)}"; else -> "Reached ${timeOf(reached)}" },
+        Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
+        glow = glow.value,
+        trailing = if (inSettings) ({ Pill("Test", { go(Screen.TEST) }, filled = false, small = true) }) else ({ CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f) }),
+        onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
+        onClick = if (inSettings) null else ({ go(Screen.SETTINGS) }),
+    )
+}
+
+/**
+ * The card floating at the bottom of Home (decision 33): it opens Settings, and carries the one problem when something
+ * breaks, at the same height. The dot is green only while AirBuzz is on and has reached the Air. Light mode casts a
+ * neutral shadow; dark mode glows in the accent, or in warn for a problem. When a problem arrives, its icon and words
+ * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40).
+ */
+@Composable
+fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, glow: Float = 1f,
+             trailing: @Composable () -> Unit, onFix: (Problem) -> Unit, onClick: (() -> Unit)?) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(24.dp)
-    val shades = if (a.dark) listOf(Shade(0.dp, 14.dp, (if (problem != null) a.warn else a.accent).copy(alpha = 0.5f)), Shade(4.dp, 12.dp, Color.Black.copy(alpha = 0.6f)))
-        else listOf(Shade(6.dp, 32.dp, Color(0x33121418)), Shade(1.dp, 4.dp, Color(0x1A121418)))
-    Row(
+    val swap = tween<Color>(220, easing = Motion.Out)
+    val border by animateColorAsState(if (problem != null) a.warn else a.line, swap, label = "border")
+    val tint by animateColorAsState(if (problem != null) a.warn else a.accent, swap, label = "glow")
+    // A one-time flare when a problem arrives, not when it clears or when Home first shows.
+    val flare = remember { Animatable(0f) }
+    var had by remember { mutableStateOf(problem != null) }
+    LaunchedEffect(problem != null) {
+        if (problem != null && !had) {
+            flare.animateTo(1f, tween(270, easing = Motion.Out))
+            flare.animateTo(0f, tween(630, easing = Motion.Out))
+        }
+        had = problem != null
+    }
+    val shades = if (a.dark) listOfNotNull(
+        Shade(0.dp, 14.dp, tint.copy(alpha = 0.5f * glow)),
+        Shade(0.dp, 24.dp, a.warn.copy(alpha = 0.55f * flare.value)).takeIf { flare.value > 0f },
+        Shade(4.dp, 12.dp, Color.Black.copy(alpha = 0.6f)),
+    ) else listOfNotNull(
+        Shade(6.dp, 32.dp, Color(0x33121418).copy(alpha = 0.2f * (0.4f + 0.6f * glow))),
+        Shade(0.dp, 20.dp, a.warn.copy(alpha = 0.45f * flare.value)).takeIf { flare.value > 0f },
+        Shade(1.dp, 4.dp, Color(0x1A121418)),
+    )
+    Box(
         modifier.fillMaxWidth().softShadow(24.dp, a.surface, shades).clip(shape).background(a.surface)
-            .border(if (problem != null) 1.5.dp else 1.dp, if (problem != null) a.warn else a.line, shape)
-            .clickable(onClickLabel = "Open Settings", onClick = onClick)
+            .border(if (problem != null) 1.5.dp else 1.dp, border, shape)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = "Open Settings", onClick = onClick) else Modifier)
             .heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        if (problem != null) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(a.warnTint), contentAlignment = Alignment.Center) {
-                CurveIcon(problem.icon, 22.dp, a.warn, 1.8f)
-            }
-        } else {
-            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                AirPebble(36.dp)
-                // A 10 dp green dot with a 2 dp ring of the card colour.
-                Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = 4.dp).size(14.dp).clip(CircleShape).background(a.surface),
-                    contentAlignment = Alignment.Center) { Dot(if (live) a.ok else a.muted, 10.dp) }
+        val rise = with(LocalDensity.current) { 8.dp.roundToPx() }
+        AnimatedContent(problem, contentKey = { it?.title }, label = "shelf", transitionSpec = {
+            (fadeIn(tween(220, easing = Motion.Out)) + slideInVertically(tween(220, easing = Motion.Out)) { rise }) togetherWith
+                (fadeOut(tween(150, easing = Motion.In)) + slideOutVertically(tween(150, easing = Motion.In)) { -rise })
+        }) { shown ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (shown != null) {
+                    Box(Modifier.size(40.dp).clip(CircleShape).background(a.warnTint), contentAlignment = Alignment.Center) {
+                        CurveIcon(shown.icon, 22.dp, a.warn, 1.8f)
+                    }
+                } else {
+                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                        AirPebble(36.dp)
+                        // A 10 dp green dot with a 2 dp ring of the card colour.
+                        Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = 4.dp).size(14.dp).clip(CircleShape).background(a.surface),
+                            contentAlignment = Alignment.Center) { Dot(if (live) a.ok else a.muted, 10.dp) }
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(shown?.title ?: "Your Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
+                    if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else Label(reached)
+                }
+                if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else trailing()
             }
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(problem?.title ?: "Your Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
-            if (problem != null) Text(problem.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            else Label(reached)
-        }
-        if (problem != null) Pill(problem.action, { onFix(problem) }, small = true)
-        else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)
     }
 }
 

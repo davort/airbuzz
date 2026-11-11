@@ -5,6 +5,15 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,14 +82,24 @@ fun OnboardingScreen(engine: Engine, s: Settings) {
     val next = { step = (step + 1).coerceAtMost(STEPS - 1) }
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp)) {
         StepBar(step) { step-- }
-        when (step) {
-            0 -> Welcome(next)
-            1 -> FindAir(next)
-            2 -> KeepRunning(next)
-            3 -> SeeAlerts(next)
-            4 -> WhoCanRing(engine, s, next)
-            5 -> WhichApps(engine, s, { appsSheet = true }, next)
-            else -> FeelIt(engine)
+        // Next moves the steps left, Back moves them right; the leaving step goes quickly (decision 40).
+        val dx = with(LocalDensity.current) { 28.dp.roundToPx() }
+        AnimatedContent(step, Modifier.weight(1f), label = "step", transitionSpec = {
+            val dir = if (targetState > initialState) 1 else -1
+            (slideInHorizontally(tween(240, easing = Motion.Out)) { dir * dx } + fadeIn(tween(240, easing = Motion.Out))) togetherWith
+                (slideOutHorizontally(tween(120, easing = Motion.In)) { -dir * dx } + fadeOut(tween(120, easing = Motion.In)))
+        }) { shown ->
+            Column(Modifier.fillMaxSize()) {
+                when (shown) {
+                    0 -> Welcome(next)
+                    1 -> FindAir(next)
+                    2 -> KeepRunning(next)
+                    3 -> SeeAlerts(next)
+                    4 -> WhoCanRing(engine, s, next)
+                    5 -> WhichApps(engine, s, { appsSheet = true }, next)
+                    else -> FeelIt(engine)
+                }
+            }
         }
     }
     if (appsSheet) AppsSheet(engine, s) { appsSheet = false }
@@ -95,7 +114,13 @@ private fun StepBar(step: Int, onBack: () -> Unit) {
             GlyphIcon(Glyph.BACK, 24.dp, if (step > 0) a.ink else a.context)
         }
         Row(Modifier.weight(1f).semantics { contentDescription = "Step ${step + 1} of $STEPS" }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            repeat(STEPS) { i -> Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(if (i <= step) a.ink else a.line)) }
+            repeat(STEPS) { i ->
+                // Each segment fills from its left edge.
+                val fill by animateFloatAsState(if (i <= step) 1f else 0f, tween(240, easing = Motion.Out), label = "segment")
+                Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(a.line)) {
+                    Box(Modifier.fillMaxWidth(fill).height(3.dp).background(a.ink))
+                }
+            }
         }
         Label("${step + 1}/$STEPS")
     }

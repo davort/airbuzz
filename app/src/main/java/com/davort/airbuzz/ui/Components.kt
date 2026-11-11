@@ -1,5 +1,12 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -120,10 +127,11 @@ enum class Buzz { REST, CONNECTING, TAPPED }
  * the capsule sideways for the shake on a tap.
  */
 @Composable
-fun AirPebble(width: Dp, buzz: Buzz = Buzz.REST, shiftPx: Float = 0f, description: String? = null) {
+fun AirPebble(width: Dp, buzz: Buzz = Buzz.REST, shiftPx: Float = 0f, description: String? = null, wave: Float = 0f) {
     val a = LocalAirColors.current
+    // A slow 1.2 s breath while connecting: a loader, so it may loop (decision 40).
     val pulse = if (buzz == Buzz.CONNECTING) {
-        rememberInfiniteTransition(label = "rings").animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse").value
+        rememberInfiniteTransition(label = "rings").animateFloat(1f, 0.35f, infiniteRepeatable(tween(600, easing = Motion.InOut), RepeatMode.Reverse), label = "pulse").value
     } else 1f
     Canvas(Modifier.size(width, width / 2).then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)) {
         val h = size.height
@@ -132,6 +140,12 @@ fun AirPebble(width: Dp, buzz: Buzz = Buzz.REST, shiftPx: Float = 0f, descriptio
         if (ring != null) listOf(9.dp to 1f, 17.dp to if (buzz == Buzz.CONNECTING) 0.55f else 0.45f).forEach { (o, op) ->
             val p = o.toPx()
             drawRoundRect(ring.copy(alpha = op * pulse), Offset(-p, -p), Size(size.width + 2 * p, h + 2 * p), CornerRadius(r + p),
+                style = Stroke(2.4.dp.toPx()))
+        }
+        // [wave] 0..1: one ring leaves the capsule when the Air taps, and fades as it goes.
+        if (wave in 0.001f..0.999f) {
+            val p = 4.dp.toPx() + wave * 22.dp.toPx()
+            drawRoundRect(a.accent.copy(alpha = 0.95f * (1f - wave)), Offset(-p, -p), Size(size.width + 2 * p, h + 2 * p), CornerRadius(r + p),
                 style = Stroke(2.4.dp.toPx()))
         }
         translate(left = shiftPx) {
@@ -218,8 +232,10 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                 is Part.Blank -> Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
                     val interaction = remember { MutableInteractionSource() }
                     val pressed by interaction.collectIsPressedAsState()
+                    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(100), label = "press")
                     Row(
                         Modifier
+                            .graphicsLayer { scaleX = scale; scaleY = scale }
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (pressed || part.open) a.tintPressed else a.tint)
@@ -465,6 +481,16 @@ fun BarMark(fate: Fate) {
 fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifier, height: Dp = 28.dp, tall: Dp = 16.dp, short: Dp = 6.dp, hours: Boolean = false) {
     val a = LocalAirColors.current
     val day = entries.filter { it.time in dayStart until dayStart + 86_400_000L && it.kind != Kind.TEST }
+    // Bars already there when the strip appears stand still; one that arrives later grows from the axis (decision 40).
+    val known = remember(dayStart) { day.map { it.time }.toMutableSet() }
+    val grow = remember(dayStart) { mutableStateMapOf<Long, Animatable<Float, AnimationVector1D>>() }
+    LaunchedEffect(day.size, dayStart) {
+        day.filter { it.time !in known }.forEach { e ->
+            known += e.time
+            val an = Animatable(0f).also { grow[e.time] = it }
+            launch { an.animateTo(1f, tween(360, easing = Motion.Out)) }
+        }
+    }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
             val w = size.width - 3.dp.toPx()
@@ -473,7 +499,9 @@ fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifie
             // Ignored first, so buzzed and failed marks sit on top.
             day.sortedBy { it.fate != Fate.IGNORED }.forEach { e ->
                 val x = ((e.time - dayStart) / 86_400_000f).coerceIn(0f, 1f) * w
-                val (h, color) = when (e.fate) { Fate.BUZZED -> tall to a.accent; Fate.IGNORED -> short to a.context; Fate.FAILED -> tall to a.warn }
+                val (full, color) = when (e.fate) { Fate.BUZZED -> tall to a.accent; Fate.IGNORED -> short to a.context; Fate.FAILED -> tall to a.warn }
+                val k = if (e.time in known) grow[e.time]?.value ?: 1f else 0f
+                val h = full * k
                 val bottom = size.height - 6.dp.toPx()
                 drawRoundRect(color, Offset(x, bottom - h.toPx()), androidx.compose.ui.geometry.Size(3.dp.toPx(), h.toPx()),
                     androidx.compose.ui.geometry.CornerRadius(1.dp.toPx()))

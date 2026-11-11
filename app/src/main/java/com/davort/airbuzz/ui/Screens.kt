@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -62,25 +63,28 @@ import com.davort.airbuzz.data.Kind
 import com.davort.airbuzz.rules.Settings
 import com.davort.airbuzz.rules.ThemeMode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.sin
 
 @Composable
-fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
+/**
+ * Settings ends in the Air shelf, at the same spot as on Home (Anchor, decision 40). Opened from Home, the blocks above
+ * it rise in nearest first; coming back from an inner screen they are simply there.
+ */
+fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, play: Boolean = false) {
     val a = LocalAirColors.current
     val context = LocalContext.current
-    val band by engine.state.collectAsStateWithLifecycle()
-    val entries by engine.log.entries.collectAsStateWithLifecycle()
-    Page {
-        ScreenBar("Settings", onBack = { go(Screen.HOME) })
-        Card {
+    Box(Modifier.fillMaxSize()) { Page {
+        Rise(5, play) { ScreenBar("Settings", onBack = { go(Screen.HOME) }) }
+        Rise(4, play) { Card {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
             Text("Strong uses more battery and also sets your Air's alarm strength.", style = Type.small, color = a.muted)
-        }
-        Group(listOf({
+        } }
+        Rise(3, play) { Group(listOf({
             GroupRow({ go(Screen.APPEARANCE) }) {
                 TwoLine("Appearance", Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -91,8 +95,8 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
-        }))
-        Group(listOf(
+        })) }
+        Rise(2, play) { Group(listOf(
             { GroupRow({ go(Screen.ACTIVITY) }) {
                 TwoLine("Activity", Modifier.weight(1f)) { Label("This week's calls and messages") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
@@ -109,20 +113,18 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
-        ))
+        )) }
         Spacer(Modifier.weight(1f))
-        Group(listOf({
-            GroupRow {
-                TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
-                    Label(lastReached(band.lastReachedAt, entries)?.let { "Reached ${timeOf(it)}" } ?: "Not reached yet")
-                }
-                Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
-            }
-        }))
-        Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
-            style = Type.small, color = a.muted)
+        Rise(1, play) {
+            Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
+                style = Type.small, color = a.muted)
+        }
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-        Label("AirBuzz $version · GNU GPL v3")
+        Rise(0, play) { Label("AirBuzz $version · GNU GPL v3") }
+        // Room for the shelf, as on Home.
+        Spacer(Modifier.height(64.dp))
+    }
+        ShelfFor(engine, s, go, inSettings = true, glowFrom = if (play) 1f else 0f)
     }
 }
 
@@ -223,11 +225,16 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     LaunchedEffect(Unit) { engine.clearTest() }
     DisposableEffect(Unit) { onDispose { engine.clearTest() } }
     val shake = remember { Animatable(0f) }
+    val wave = remember { Animatable(0f) }
     val buzzedMs = run?.buzzedMs
+    // On the tap: one ring leaves the pebble (520 ms) while it twitches twice (2 × 140 ms), decision 40.
     LaunchedEffect(buzzedMs) {
         if (buzzedMs != null) {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-            if (!reduceMotion) { shake.snapTo(0f); shake.animateTo(1f, tween(1000, easing = LinearEasing)) } else shake.snapTo(1f)
+            if (!reduceMotion) {
+                launch { wave.snapTo(0f); wave.animateTo(1f, tween(520, easing = Motion.Out)) }
+                shake.snapTo(0f); shake.animateTo(1f, tween(280, easing = LinearEasing))
+            } else { shake.snapTo(1f); wave.snapTo(1f) }
         }
     }
     val r = run?.result
@@ -244,10 +251,10 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     Page {
         ScreenBar("Test buzz", onBack = onBack)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The capsule shakes on the tap: a fading wobble of up to 4 dp.
-            val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 40f) * (1f - shake.value) * with(LocalDensity.current) { 4.dp.toPx() } else 0f
+            // The capsule twitches on the tap: two 1.5 dp wobbles.
+            val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 4f * Math.PI.toFloat()) * with(LocalDensity.current) { 1.5.dp.toPx() } else 0f
             AirPebble(96.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
-                if (buzzedMs != null) "Your Air buzzed" else if (connecting) "Connecting to your Air" else "Your Air")
+                if (buzzedMs != null) "Your Air buzzed" else if (connecting) "Connecting to your Air" else "Your Air", wave.value)
             HGap(32)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Label("Time to tap")
