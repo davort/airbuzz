@@ -16,7 +16,6 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
@@ -32,6 +31,15 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -148,26 +156,28 @@ fun App(engine: Engine, settings: AirSettings) {
             OnboardingScreen(engine, settings)
             return@Box
         }
-        // Anchor (decision 40): Home's shelf stays put and becomes Settings' last row while Settings fades in above it;
-        // Back fades Settings out over Home, faster. Every other move is a cut.
-        AnimatedContent(screen, label = "screen", transitionSpec = {
+        // Expand (decision 40): the shelf grows into Settings and Back shrinks Settings into the shelf. [reveal] is 0 on
+        // Home and 1 on Settings; every other move is a cut.
+        val reveal = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
+        LaunchedEffect(screen) {
             when {
-                initialState == Screen.HOME && targetState == Screen.SETTINGS ->
-                    fadeIn(tween(Motion.ANCHOR * 6 / 10, easing = Motion.Out)) togetherWith ExitTransition.KeepUntilTransitionsFinished
-                initialState == Screen.SETTINGS && targetState == Screen.HOME ->
-                    (EnterTransition.None togetherWith fadeOut(tween(Motion.ANCHOR_BACK, easing = Motion.In))).apply { targetContentZIndex = -1f }
-                else -> EnterTransition.None togetherWith ExitTransition.None
-            }
-        }) { shown ->
-            when (shown) {
-                Screen.HOME -> Home(engine, settings, sheet, go, open)
-                Screen.SETTINGS -> SettingsScreen(engine, settings, go, play = from == Screen.HOME)
-                Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
-                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
-                Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
-                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+                screen == Screen.SETTINGS && from == Screen.HOME -> reveal.animateTo(1f, tween(Motion.EXPAND, easing = Motion.Emph))
+                screen == Screen.HOME && from == Screen.SETTINGS -> reveal.animateTo(0f, tween(Motion.EXPAND_BACK, easing = Motion.Emph))
+                else -> reveal.snapTo(if (screen == Screen.SETTINGS) 1f else 0f)
             }
         }
+        val p = reveal.value
+        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && p < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && p > 0f)
+        // While it grows, Home stays underneath in the same slot, so it keeps its state.
+        when (if (growing) Screen.HOME else screen) {
+            Screen.HOME -> Home(engine, settings, sheet, go, open)
+            Screen.SETTINGS -> SettingsScreen(engine, settings, go)
+            Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
+            Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
+            Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
+            Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+        }
+        if (growing) ExpandingSettings(p, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go) }
     }
     sheet?.let { kind ->
         val close = { sheet = null }
@@ -323,6 +333,9 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             // Room for the shelf: its 68 dp and 16 dp margin, plus the usual 12 dp gap.
             Spacer(Modifier.height(64.dp))
         }
+        // The shelf floats over the list, which fades out under it.
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp)
+            .background(Brush.verticalGradient(0f to Color.Transparent, 0.55f to a.bg)))
         ShelfFor(engine, s, go)
     }
 }
@@ -383,15 +396,10 @@ fun firstProblem(context: android.content.Context, lastError: String?, reached: 
     else -> null
 }
 
-/**
- * The Air shelf and the fade under it, at the bottom of Home and, as Settings' last row, at the same spot in Settings
- * (Anchor, decision 40). On Home it opens Settings; in Settings it ends in Test and its glow fades out when [glowFrom]
- * is 1.
- */
+/** The Air shelf as Home shows it, at the bottom of a full-screen box. */
 @Composable
-fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit, inSettings: Boolean = false, glowFrom: Float = 1f) {
+fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     val context = LocalContext.current
-    val a = LocalAirColors.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val tick = rememberResumeTick()
@@ -401,20 +409,41 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit, inSe
     val fixer = rememberFixer(go) {}
     val paused = s.enabled && s.pausedUntil > now
     val live = s.enabled && !paused && reached != null
-    val glow = remember { Animatable(if (inSettings) glowFrom else 1f) }
-    if (inSettings) LaunchedEffect(Unit) { glow.animateTo(0f, tween(Motion.ANCHOR, easing = Motion.Out)) }
-    // The list fades out under the shelf.
-    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp)
-        .background(Brush.verticalGradient(0f to Color.Transparent, 0.55f to a.bg)))
     AirShelf(
         problem.takeIf { s.enabled }, live,
-        when { reached == null -> "Not reached yet"; live && !inSettings -> "Connected · reached ${timeOf(reached)}"; else -> "Reached ${timeOf(reached)}" },
+        if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
-        glow = glow.value,
-        trailing = if (inSettings) ({ Pill("Test", { go(Screen.TEST) }, filled = false, small = true) }) else ({ CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f) }),
         onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
-        onClick = if (inSettings) null else ({ go(Screen.SETTINGS) }),
-    )
+    ) { go(Screen.SETTINGS) }
+}
+
+/**
+ * Settings growing out of the shelf (Expand, decision 40), drawn over Home while [p] runs 0 → 1, and back for Back.
+ * The card grows from the shelf's bounds to the whole screen and turns from the card colour to the page colour. The
+ * shelf's own content ([ghost]) fades out in the first quarter; Settings, laid out at full size so nothing reflows or
+ * stretches, fades in and rises 8 dp from 35 %. Home dims under it.
+ */
+@Composable
+fun ExpandingSettings(p: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
+    val a = LocalAirColors.current
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (a.dark) 0.45f else 0.25f) * p)))
+    Box(Modifier.fillMaxSize().graphicsLayer { shape = GrowShape(p); clip = true }.background(lerp(a.surface, a.bg, p))) {
+        val gone = (1f - p / 0.25f).coerceIn(0f, 1f)
+        if (gone > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = gone }) { ghost() }
+        val show = ((p - 0.35f) / 0.5f).coerceIn(0f, 1f)
+        val rise = with(LocalDensity.current) { 8.dp.toPx() }
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = show; translationY = rise * (1f - show) }) { content() }
+    }
+}
+
+/** The shelf's rounded box (12 dp sides, 16 dp from the bottom, 68 dp tall, 24 dp corners) at 0, the whole screen at 1. */
+private class GrowShape(val p: Float) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline = with(density) {
+        fun mix(from: Float, to: Float) = from + (to - from) * p
+        val bottom = size.height - 16.dp.toPx()
+        Outline.Rounded(RoundRect(mix(12.dp.toPx(), 0f), mix(bottom - 68.dp.toPx(), 0f), mix(size.width - 12.dp.toPx(), size.width),
+            mix(bottom, size.height), CornerRadius(mix(24.dp.toPx(), 0f))))
+    }
 }
 
 /**
@@ -424,8 +453,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit, inSe
  * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40).
  */
 @Composable
-fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, glow: Float = 1f,
-             trailing: @Composable () -> Unit, onFix: (Problem) -> Unit, onClick: (() -> Unit)?) {
+fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(24.dp)
     val swap = tween<Color>(220, easing = Motion.Out)
@@ -442,18 +470,18 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifi
         had = problem != null
     }
     val shades = if (a.dark) listOfNotNull(
-        Shade(0.dp, 14.dp, tint.copy(alpha = 0.5f * glow)),
+        Shade(0.dp, 14.dp, tint.copy(alpha = 0.5f)),
         Shade(0.dp, 24.dp, a.warn.copy(alpha = 0.55f * flare.value)).takeIf { flare.value > 0f },
         Shade(4.dp, 12.dp, Color.Black.copy(alpha = 0.6f)),
     ) else listOfNotNull(
-        Shade(6.dp, 32.dp, Color(0x33121418).copy(alpha = 0.2f * (0.4f + 0.6f * glow))),
+        Shade(6.dp, 32.dp, Color(0x33121418)),
         Shade(0.dp, 20.dp, a.warn.copy(alpha = 0.45f * flare.value)).takeIf { flare.value > 0f },
         Shade(1.dp, 4.dp, Color(0x1A121418)),
     )
     Box(
         modifier.fillMaxWidth().softShadow(24.dp, a.surface, shades).clip(shape).background(a.surface)
             .border(if (problem != null) 1.5.dp else 1.dp, border, shape)
-            .then(if (onClick != null) Modifier.clickable(onClickLabel = "Open Settings", onClick = onClick) else Modifier)
+            .clickable(onClickLabel = "Open Settings", onClick = onClick)
             .heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -481,7 +509,7 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifi
                     if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else Label(reached)
                 }
-                if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else trailing()
+                if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)
             }
         }
     }

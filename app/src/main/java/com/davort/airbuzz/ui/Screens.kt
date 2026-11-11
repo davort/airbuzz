@@ -70,21 +70,19 @@ import java.util.Locale
 import kotlin.math.sin
 
 @Composable
-/**
- * Settings ends in the Air shelf, at the same spot as on Home (Anchor, decision 40). Opened from Home, the blocks above
- * it rise in nearest first; coming back from an inner screen they are simply there.
- */
-fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, play: Boolean = false) {
+fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
     val a = LocalAirColors.current
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize()) { Page {
-        Rise(5, play) { ScreenBar("Settings", onBack = { go(Screen.HOME) }) }
-        Rise(4, play) { Card {
+    val band by engine.state.collectAsStateWithLifecycle()
+    val entries by engine.log.entries.collectAsStateWithLifecycle()
+    Page {
+        ScreenBar("Settings", onBack = { go(Screen.HOME) })
+        Card {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
             Text("Strong uses more battery and also sets your Air's alarm strength.", style = Type.small, color = a.muted)
-        } }
-        Rise(3, play) { Group(listOf({
+        }
+        Group(listOf({
             GroupRow({ go(Screen.APPEARANCE) }) {
                 TwoLine("Appearance", Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -95,8 +93,8 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, play: Bool
                 }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
-        })) }
-        Rise(2, play) { Group(listOf(
+        }))
+        Group(listOf(
             { GroupRow({ go(Screen.ACTIVITY) }) {
                 TwoLine("Activity", Modifier.weight(1f)) { Label("This week's calls and messages") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
@@ -113,18 +111,20 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, play: Bool
                 TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
-        )) }
+        ))
         Spacer(Modifier.weight(1f))
-        Rise(1, play) {
-            Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
-                style = Type.small, color = a.muted)
-        }
+        Group(listOf({
+            GroupRow {
+                TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
+                    Label(lastReached(band.lastReachedAt, entries)?.let { "Reached ${timeOf(it)}" } ?: "Not reached yet")
+                }
+                Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
+            }
+        }))
+        Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
+            style = Type.small, color = a.muted)
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-        Rise(0, play) { Label("AirBuzz $version · GNU GPL v3") }
-        // Room for the shelf, as on Home.
-        Spacer(Modifier.height(64.dp))
-    }
-        ShelfFor(engine, s, go, inSettings = true, glowFrom = if (play) 1f else 0f)
+        Label("AirBuzz $version · GNU GPL v3")
     }
 }
 
