@@ -89,6 +89,19 @@ git -C third_party/golden-gate submodule update --init external/lwip external/mb
 step "local.properties"
 echo "sdk.dir=$android_home" > local.properties
 
+step "Shared debug signing key"
+# Debug APKs are signed with the debug key from Davor's Mac, kept in the private research repo and not in this
+# public one, so an APK built here installs over one built there. Without it the orb signs with its own key and the
+# phone refuses the update (INSTALL_FAILED_UPDATE_INCOMPATIBLE).
+key_tmp="$(mktemp)"
+if gh api -H 'Accept: application/vnd.github.raw' repos/davort/airbuzz-research/contents/signing/debug.keystore >"$key_tmp" 2>/dev/null; then
+  mkdir -p "$HOME/.android"
+  mv "$key_tmp" "$HOME/.android/debug.keystore"
+else
+  rm -f "$key_tmp"
+  echo "WARNING: no shared debug key; APKs from this orb won't install over ones from Davor's Mac" >&2
+fi
+
 step "Gradle warm-up (unit tests and debug APK)"
 # Downloads Gradle, AGP and the libraries and builds the native code once, so a thread's
 # first build is incremental. A broken build on main must not block the snapshot.
