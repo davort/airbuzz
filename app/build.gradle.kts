@@ -11,8 +11,8 @@ android {
         applicationId = "com.davort.airbuzz"
         minSdk = 28
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.5.3"
+        versionCode = 16
+        versionName = "0.5.4"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     buildTypes {

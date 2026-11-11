@@ -1,5 +1,8 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings as SystemSettings
@@ -70,14 +73,26 @@ import java.util.Locale
 import kotlin.math.sin
 
 @Composable
-fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, titleAlpha: Float = 1f) {
+/**
+ * [titleIn] runs 0 → 1 after the shelf has grown into Settings (Expand, decision 40): the title rises from the bottom of
+ * the Strength card into its place and fades in. The card draws over it, so it seems to come out from behind the card.
+ */
+fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, titleIn: Float = 1f) {
     val a = LocalAirColors.current
     val context = LocalContext.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
+    // How far the title's resting top is above the Strength card's bottom, measured outside the title's own layer.
+    var titleTop by remember { mutableFloatStateOf(0f) }
+    var cardBottom by remember { mutableFloatStateOf(0f) }
     Page {
-        ScreenBar("Settings", onBack = { go(Screen.HOME) }, titleAlpha = titleAlpha)
-        Card {
+        ScreenBar("Settings", onBack = { go(Screen.HOME) }, titleModifier = Modifier
+            .onGloballyPositioned { titleTop = it.positionInRoot().y }
+            .graphicsLayer {
+                alpha = (titleIn / 0.6f).coerceAtMost(1f)
+                translationY = (cardBottom - titleTop).coerceAtLeast(0f) * (1f - titleIn)
+            })
+        Card(Modifier.onGloballyPositioned { cardBottom = it.positionInRoot().y + it.size.height }) {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
             Text("Strong uses more battery and also sets your Air's alarm strength.", style = Type.small, color = a.muted)

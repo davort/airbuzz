@@ -185,7 +185,7 @@ fun App(engine: Engine, settings: AirSettings) {
             Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
             Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
         }
-        if (growing) ExpandingSettings(p, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, titleAlpha = title.value) }
+        if (growing) ExpandingSettings(p, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, titleIn = title.value) }
     }
     sheet?.let { kind ->
         val close = { sheet = null }
