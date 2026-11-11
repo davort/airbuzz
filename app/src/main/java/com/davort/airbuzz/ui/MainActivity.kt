@@ -158,24 +158,24 @@ fun App(engine: Engine, settings: AirSettings) {
         }
         // Expand (decision 40): the shelf grows into Settings and Back shrinks Settings into the shelf. [reveal] is 0 on
         // Home and 1 on Settings; every other move is a cut.
-        // [fill] fades Settings' content in only once the panel has filled the screen, and out before it shrinks.
+        // [title] fades Settings' title in only once the panel has filled the screen, and out before it shrinks.
         val reveal = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
-        val fill = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
+        val title = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
         LaunchedEffect(screen) {
             when {
                 screen == Screen.SETTINGS && from == Screen.HOME -> {
                     reveal.animateTo(1f, tween(Motion.EXPAND, easing = Motion.Emph))
-                    fill.animateTo(1f, tween(Motion.FILL, easing = Motion.Out))
+                    title.animateTo(1f, tween(Motion.TITLE, easing = Motion.Out))
                 }
                 screen == Screen.HOME && from == Screen.SETTINGS -> {
-                    fill.animateTo(0f, tween(Motion.FILL_BACK, easing = Motion.In))
+                    title.animateTo(0f, tween(Motion.TITLE_BACK, easing = Motion.In))
                     reveal.animateTo(0f, tween(Motion.EXPAND_BACK, easing = Motion.Emph))
                 }
-                else -> { val v = if (screen == Screen.SETTINGS) 1f else 0f; reveal.snapTo(v); fill.snapTo(v) }
+                else -> { val v = if (screen == Screen.SETTINGS) 1f else 0f; reveal.snapTo(v); title.snapTo(v) }
             }
         }
         val p = reveal.value
-        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && fill.value < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && p > 0f)
+        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && title.value < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && p > 0f)
         // While it grows, Home stays underneath in the same slot, so it keeps its state.
         when (if (growing) Screen.HOME else screen) {
             Screen.HOME -> Home(engine, settings, sheet, go, open)
@@ -185,7 +185,7 @@ fun App(engine: Engine, settings: AirSettings) {
             Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
             Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
         }
-        if (growing) ExpandingSettings(p, fill.value, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go) }
+        if (growing) ExpandingSettings(p, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, titleAlpha = title.value) }
     }
     sheet?.let { kind ->
         val close = { sheet = null }
@@ -428,16 +428,17 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
 /**
  * Settings growing out of the shelf (Expand, decision 40), drawn over Home while [p] runs 0 → 1, and back for Back.
  * The card grows from the shelf's bounds to the whole screen and turns from the card colour to the page colour. The
- * shelf's own content ([ghost]) fades out in the first quarter. Settings, laid out at full size so nothing reflows or
- * stretches, fades in and rises 8 dp as [show] runs 0 → 1, after the panel has filled the screen. Home dims under it.
+ * shelf's own content ([ghost]) fades out in the first quarter; Settings, laid out at full size so nothing reflows or
+ * stretches, fades in and rises 8 dp from 35 %. Its title waits until the panel fills the screen. Home dims under it.
  */
 @Composable
-fun ExpandingSettings(p: Float, show: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
+fun ExpandingSettings(p: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
     val a = LocalAirColors.current
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (a.dark) 0.45f else 0.25f) * p)))
     Box(Modifier.fillMaxSize().graphicsLayer { shape = GrowShape(p); clip = true }.background(lerp(a.surface, a.bg, p))) {
         val gone = (1f - p / 0.25f).coerceIn(0f, 1f)
         if (gone > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = gone }) { ghost() }
+        val show = ((p - 0.35f) / 0.5f).coerceIn(0f, 1f)
         val rise = with(LocalDensity.current) { 8.dp.toPx() }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = show; translationY = rise * (1f - show) }) { content() }
     }

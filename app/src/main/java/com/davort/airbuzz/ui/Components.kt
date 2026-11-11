@@ -438,14 +438,14 @@ fun Page(gap: Dp = 12.dp, content: @Composable ColumnScope.() -> Unit) {
 
 /** Top bar of an inner screen: back arrow, serif title, and optional content on the right. */
 @Composable
-fun ScreenBar(title: String, onBack: () -> Unit, right: @Composable RowScope.() -> Unit = {}) {
+fun ScreenBar(title: String, onBack: () -> Unit, titleAlpha: Float = 1f, right: @Composable RowScope.() -> Unit = {}) {
     val a = LocalAirColors.current
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.size(width = 32.dp, height = 48.dp).clickable(onClickLabel = "Back", role = Role.Button, onClick = onBack),
             contentAlignment = Alignment.CenterStart) {
             GlyphIcon(Glyph.BACK, 24.dp, a.ink)
         }
-        Text(title, style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).semantics { heading() })
+        Text(title, style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).graphicsLayer { alpha = titleAlpha }.semantics { heading() })
         right()
     }
 }

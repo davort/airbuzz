@@ -70,13 +70,13 @@ import java.util.Locale
 import kotlin.math.sin
 
 @Composable
-fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
+fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, titleAlpha: Float = 1f) {
     val a = LocalAirColors.current
     val context = LocalContext.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     Page {
-        ScreenBar("Settings", onBack = { go(Screen.HOME) })
+        ScreenBar("Settings", onBack = { go(Screen.HOME) }, titleAlpha = titleAlpha)
         Card {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }

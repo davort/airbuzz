@@ -16,10 +16,10 @@ object Motion {
     /** Material's emphasized curve, for the shelf growing into Settings. */
     val Emph = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    /** The shelf grows into Settings (Expand) in this long, then Settings fades in over [FILL]. */
-    const val EXPAND = 450
-    const val FILL = 200
-    /** Back: Settings fades out over [FILL_BACK], then the panel shrinks into the shelf. */
-    const val FILL_BACK = 120
-    const val EXPAND_BACK = 300
+    /** The shelf grows into Settings (Expand) in this long, then Settings' title fades in over [TITLE]. */
+    const val EXPAND = 380
+    const val TITLE = 180
+    /** Back: the title fades out over [TITLE_BACK], then the panel shrinks into the shelf. */
+    const val TITLE_BACK = 100
+    const val EXPAND_BACK = 260
 }

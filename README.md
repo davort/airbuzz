@@ -20,6 +20,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.5** (versionCode 12): motion (brief decision 40). The shelf opens Settings by staying put and becoming its last row while Settings rises in above it (Anchor); the Air row with Test moved to the bottom of Settings. A problem cross-fades into the shelf and its glow flares once. New alerts grow a bar in the strip and open a history row; the On/Paused/Off word rolls and the paused card swaps in place; blanks press in; Test buzz sends one ring out on the tap with a short twitch; onboarding steps slide with Next and Back. All of it follows Android's animation scale, so "Remove animations" turns it off.
 - **0.5.1** (versionCode 13): the shelf opens Settings by Expand instead of Anchor: the shelf grows into the whole Settings page over 450 ms while its own content fades out and Settings fades in, and Back shrinks it into the shelf in 300 ms. The shelf shows only on Home again; Settings has its Google Fitbit Air row with Test back in its list (brief decision 40).
 - **0.5.2** (versionCode 14): Settings' content fades in (200 ms) only after the shelf has finished growing into the page, and on Back fades out (120 ms) before the page shrinks into the shelf.
+- **0.5.3** (versionCode 15): the shelf expands into Settings in 380 ms again, with Settings fading in as it grows as in 0.5.1; only the Settings title waits until the page is full and then fades in (180 ms). Back fades the title out first (100 ms), then shrinks the page into the shelf (260 ms).
 
 ## What it does
 
