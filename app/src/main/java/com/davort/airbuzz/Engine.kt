@@ -122,6 +122,9 @@ data class TestRun(
     val buzzedMs: Long? = null,
     val result: BandResult? = null,
     val lines: List<String> = emptyList(),
+    /** The band's phases and link so far, while the test runs, so Test buzz lists each step as it happens. */
+    val phases: Map<String, Long> = emptyMap(),
+    val link: String? = null,
 )
 
 /**
@@ -134,7 +137,7 @@ class Engine(private val app: Context) {
     /** AirBuzz's own step log, shared from Settings. */
     val debug = DebugLog(java.io.File(app.filesDir, "debug.log"))
     private val main = Handler(Looper.getMainLooper())
-    private val band = AirBand(app) { line -> note(line); testLine(line) }
+    private val band = AirBand(app) { line -> note(line); testLine(line) }.also { it.onPhase = { testPhases() } }
 
     private val bandState = MutableStateFlow(BandState())
     val state: StateFlow<BandState> = bandState
@@ -167,6 +170,8 @@ class Engine(private val app: Context) {
 
     private val queue = ArrayDeque<Job>()
     private var running: Job? = null
+    /** The queued or running Test buzz, so only its own steps reach the Test buzz screen. */
+    private var testJob: Job? = null
     /** Jobs that failed, usually because Google Health held the Air, waiting [RETRY_MS] (or [SILENT_RING_RETRY_MS]) to try again. */
     private val waiting = mutableListOf<Job>()
     private val lastBuzzByApp = HashMap<String, Long>()
@@ -302,13 +307,15 @@ class Engine(private val app: Context) {
         if (testState.value?.result == null && testState.value != null) return
         val started = SystemClock.elapsedRealtime()
         testState.value = TestRun(started)
-        queue.addLast(Job(BandCommand.Taps(taps, strength), buzzed = {
+        val job = Job(BandCommand.Taps(taps, strength), buzzed = {
             testState.value = testState.value?.copy(buzzedMs = SystemClock.elapsedRealtime() - started)
         }) { r ->
             testState.value = testState.value?.copy(result = r)
             log.add(Entry(System.currentTimeMillis(), Kind.TEST, app.packageName, "Test buzz", null, null,
                 if (r.taps > 0) Result.BUZZED else Result.FAILED, if (r.taps > 0) null else r.message, latencyMs = r.firstBuzzMs))
-        })
+        }
+        testJob = job
+        queue.addLast(job)
         pump()
     }
 
@@ -319,6 +326,14 @@ class Engine(private val app: Context) {
         if (t.result != null) return
         val ms = SystemClock.elapsedRealtime() - t.startedAt
         testState.value = t.copy(lines = t.lines + String.format(Locale.ROOT, "%5.1f s  %s", ms / 1000.0, line))
+        testPhases()
+    }
+
+    /** Copies the running Test buzz's phases so far into [test], so its steps appear as they happen. */
+    private fun testPhases() {
+        val t = testState.value ?: return
+        if (t.result != null || running !== testJob) return
+        testState.value = t.copy(phases = band.phasesSoFar, link = band.link)
     }
 
     // The band queue

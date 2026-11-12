@@ -195,6 +195,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
 
     val busy: Boolean get() = onDone != null
 
+    /** How the running command reached the Air so far: "new", "open" or "open→new". */
+    val link: String get() = if (fellBack) "open→new" else if (usedOpenLink) "open" else "new"
+
+    /** The running command's phases so far, in ms since it started, for Test buzz to show live. */
+    val phasesSoFar: Map<String, Long> get() = LinkedHashMap(phases)
+
+    /** Called on the main thread each time the running command reaches a phase. */
+    var onPhase: () -> Unit = {}
+
     fun findBondedAir(): BluetoothDevice? {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return null
         return try {
@@ -612,6 +621,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
 
     private fun mark(phase: String) {
         phases[phase] = SystemClock.elapsedRealtime() - startedAt
+        onPhase()
     }
 
     private fun readStrength(ep: CoapEndpoint): Single<Int> =
@@ -655,7 +665,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val result = {
             BandResult(ok, message, firstBuzzAt?.let { it - startedAt }, SystemClock.elapsedRealtime() - startedAt,
                 taps, handshakeAttempts, wrongKeys, lostRaces,
-                if (fellBack) "open→new" else if (usedOpenLink) "open" else "new", LinkedHashMap(phases), bandSilent)
+                link, LinkedHashMap(phases), bandSilent)
         }
         if (bandSilent && silentSince == 0L) silentSince = SystemClock.elapsedRealtime()
         val end = {

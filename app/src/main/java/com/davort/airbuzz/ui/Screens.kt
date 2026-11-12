@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -208,6 +209,8 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("AirBuzz", style = Type.heading.copy(fontSize = 28.sp, lineHeight = 32.sp), color = a.heading)
                     Label("Version ${appVersion(context)}")
+                    // Its own line: "Version 0.6.10 · GPL-3.0 · © 2026 Misek AB" is wider than a 360 dp phone allows.
+                    Label("© 2026 Misek AB")
                 }
             }
             Text("Free software under GPL-3.0. You can use, study, share and change it.", style = Type.small, color = a.ink)
@@ -330,9 +333,9 @@ fun AccentCard(dark: Boolean, selected: Int, onSelect: (Int) -> Unit) {
 /** One line of Test buzz's details, from the band's own timings. */
 data class Step(val name: String, val text: String, val endMs: Long?, val bad: Boolean = false)
 
-fun testSteps(r: BandResult?, buzzedMs: Long?): List<Step> {
-    val p = r?.phases ?: emptyMap()
-    val open = r?.link == "open"
+fun testSteps(r: BandResult?, buzzedMs: Long?, livePhases: Map<String, Long> = emptyMap(), liveLink: String? = null): List<Step> {
+    val p = r?.phases ?: livePhases
+    val open = (r?.link ?: liveLink) == "open"
     val ends = listOf(p["subscribed"] ?: p["connected"] ?: if (open) 0L else null, p["quiet"], p["session"], buzzedMs ?: p["buzzed"])
     val names = listOf("Found your Fitbit Air", "Google Health paused", "Secure connection", "Tap sent")
     var prev = 0L
@@ -384,8 +387,7 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
         while (connecting) { value = SystemClock.elapsedRealtime() - started; delay(100) }
     }
     var didNotFeel by remember { mutableStateOf(false) }
-    var showDetails by remember(failed) { mutableStateOf(failed) }
-    val steps = testSteps(r, buzzedMs)
+    val steps = testSteps(r, buzzedMs, run?.phases.orEmpty(), run?.link)
 
     Page {
         ScreenBar("Test buzz", onBack = onBack)
@@ -424,30 +426,9 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
             else -> "Press Test to tap your Fitbit Air once and see how long it takes. The target is 3 s."
         }, style = Type.body, color = a.ink)
         Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
-        if (r != null) {
-            val rows = mutableListOf<@Composable () -> Unit>({
-                GroupRow({ showDetails = !showDetails }) {
-                    Text(if (showDetails) "Hide details" else "Show details", style = Type.bodyMedium, color = a.ink, modifier = Modifier.weight(1f))
-                    GlyphIcon(if (showDetails) Glyph.UP else Glyph.DOWN, 20.dp, a.muted)
-                }
-            })
-            if (showDetails) {
-                steps.forEach { st ->
-                    rows += {
-                        GroupRow(vertical = 12.dp) {
-                            Text(st.name, style = Type.body, color = if (st.text == "—") a.muted else a.ink, modifier = Modifier.weight(1f))
-                            Label(st.text, color = when { st.bad -> a.warn; st.name == "Tap sent" && st.endMs != null -> a.accent; else -> a.muted })
-                        }
-                    }
-                }
-                if (r.wrongKeys + r.lostRaces > 0) rows += {
-                    GroupRow(vertical = 12.dp) {
-                        Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
-                    }
-                }
-            }
-            Group(rows)
-        }
+        StepList(steps, if (connecting) elapsed else null)
+        if (r != null && r.wrongKeys + r.lostRaces > 0)
+            Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
         Spacer(Modifier.weight(1f))
         when {
             connecting -> Pill("Connecting…", {}, Modifier.fillMaxWidth(), enabled = false)
@@ -468,6 +449,36 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
                 Pill("Test again", { didNotFeel = false; engine.clearTest(); engine.testBuzz() }, Modifier.fillMaxWidth())
             }
             else -> Pill("Test", { engine.testBuzz() }, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/**
+ * Test buzz's steps, always shown and filled in as they happen. Each mark has the ink of its stretch of the timeline
+ * above (Tap sent in the accent); the step under way counts up while AirBuzz connects.
+ */
+@Composable
+fun StepList(steps: List<Step>, liveMs: Long?) {
+    val a = LocalAirColors.current
+    val current = if (liveMs != null) steps.indexOfFirst { it.endMs == null } else -1
+    val since = steps.take(current.coerceAtLeast(0)).mapNotNull { it.endMs }.lastOrNull() ?: 0L
+    Column(Modifier.fillMaxWidth()) {
+        steps.forEachIndexed { i, st ->
+            val done = st.endMs != null
+            val mark = when {
+                st.bad -> a.warn
+                i == 3 && done -> a.accent
+                done || i == current -> a.ink.copy(alpha = listOf(1f, 0.6f, 0.35f, 1f)[i])
+                else -> a.context
+            }
+            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(width = 3.dp, height = 14.dp).clip(RoundedCornerShape(1.dp)).background(mark))
+                HGap(14)
+                Text(st.name, style = Type.body, color = if (done || i == current || st.bad) a.ink else a.muted, modifier = Modifier.weight(1f))
+                Label(if (i == current && liveMs != null) seconds(liveMs - since) else st.text,
+                    color = when { st.bad -> a.warn; i == 3 && done -> a.accent; i == current -> a.ink; else -> a.muted })
+            }
         }
     }
 }
