@@ -2,7 +2,7 @@
 
 Effective 12 November 2026.
 
-AirBuzz is made by Davor Tomic. For questions about this policy or your data, write to support@airbuzz.me.
+AirBuzz is published by Misek AB. For questions about this policy or your data, write to support@airbuzz.me.
 
 ## What AirBuzz keeps, and where
 
