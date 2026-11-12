@@ -189,6 +189,7 @@ class Engine(private val app: Context) {
                         if (st == BluetoothAdapter.STATE_ON || st == BluetoothAdapter.STATE_OFF) {
                             note("Bluetooth turned ${if (st == BluetoothAdapter.STATE_ON) "on" else "off"}")
                             checkBluetooth()
+                            if (st == BluetoothAdapter.STATE_ON) band.warmUp() else band.shutdown()
                         }
                     }
                     Intent.ACTION_USER_PRESENT -> onUnlocked()
@@ -429,6 +430,9 @@ class Engine(private val app: Context) {
         val left = s.pausedUntil - System.currentTimeMillis()
         if (s.enabled && left > 0) main.postDelayed(pauseEnded, left)
         checkBluetooth()
+        // The open link stays up while AirBuzz is on, paused included, since chosen callers still ring.
+        if (!band.busy) band.keepLinkOpen = s.enabled
+        if (s.enabled) band.warmUp()
     }
 
     private fun missed(title: String, r: BandResult) {

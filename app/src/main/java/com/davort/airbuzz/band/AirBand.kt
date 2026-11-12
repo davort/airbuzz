@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -90,6 +91,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val TX: UUID = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         val RX: UUID = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        val BATTERY_LEVEL: UUID = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
 
         const val CONNECT_TIMEOUT_MS = 45_000L
         const val HANDSHAKE_TIMEOUT_MS = 6_000L
@@ -104,6 +106,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         /** With nothing received this long after the handshake starts, the open link is treated as dead. */
         const val OPEN_LINK_SILENCE_MS = 2_000L
         const val STRENGTH_KEY = "band_strength"
+        /** After a drop or a failed attempt the open link is asked for again after this, doubling up to [WARM_RETRY_MAX_MS]. */
+        const val WARM_RETRY_MS = 5_000L
+        const val WARM_RETRY_MAX_MS = 30 * 60_000L
+        /** How often the step log records the Air's and the phone's battery, to measure what the open link costs. */
+        const val BATTERY_EVERY_MS = 60 * 60_000L
     }
 
     /** Refuses every PSK, so the band's next handshake fails and it resets its Gattlink session. */
@@ -128,8 +135,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     var keepLinkOpen = true
         set(value) {
             field = value
+            if (!value) main.removeCallbacks(warmRetry)
             if (!value && !busy && gatt != null) closeTransport()
         }
+
+    /** The current connection was opened by [warmUp] and is not subscribed yet. */
+    private var warming = false
+    private var warmDelay = WARM_RETRY_MS
+    private val warmRetry = Runnable { warmUp() }
+    private var batteryAt = 0L
     private var linkReadyAt = 0L
     private val recentRx = ArrayDeque<Pair<Long, Int>>()
     private var usedOpenLink = false
@@ -196,12 +210,18 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
         main.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS)
         val open = gatt
-        if (keepLinkOpen && open != null && linkUp && SystemClock.elapsedRealtime() - linkReadyAt >= SETTLE_MS) {
+        if (keepLinkOpen && open != null && linkUp && !warming && SystemClock.elapsedRealtime() - linkReadyAt >= SETTLE_MS) {
             usedOpenLink = true
             log("Using the open link")
             // On the open link the fast-link request goes out at once (test app 0.4: no lost races from it).
             linkBoosted = open.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-            if (!subscribe(open)) reconnectFresh(device, "could not refresh the subscription")
+            if (!subscribe(open)) {
+                // Most likely an hourly battery read still in flight; give it a moment before connecting afresh.
+                val token = startedAt
+                main.postDelayed({
+                    if (busy && startedAt == token && gatt === open && !subscribe(open)) reconnectFresh(device, "could not refresh the subscription")
+                }, 200)
+            }
             return
         }
         if (open != null) closeTransport()
@@ -213,6 +233,38 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (!busy) return
         stopRequested = true
         if (!sessionStarted) succeed("Stopped before the Air was reached.")
+    }
+
+    /**
+     * Opens the listen-only link ahead of the first alert, so it doesn't pay for a new connection and the wrong key
+     * (8.2 s for a Telegram message on Davor's phone on 12 Nov). Android's autoConnect leaves the waiting to the
+     * Bluetooth chip, which costs little while the Air is out of reach. Does nothing while a link exists or AirBuzz is off.
+     */
+    fun warmUp() {
+        main.removeCallbacks(warmRetry)
+        if (!keepLinkOpen || busy || gatt != null) return
+        if (context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled != true) return
+        val device = findBondedAir() ?: return
+        log("Opening the link to ${device.name}")
+        val g = try { device.connectGatt(context, true, callback, TRANSPORT_LE) } catch (_: SecurityException) { null }
+        if (g == null) return scheduleWarm()
+        warming = true
+        gatt = g
+    }
+
+    private fun scheduleWarm() {
+        if (!keepLinkOpen) return
+        main.removeCallbacks(warmRetry)
+        main.postDelayed(warmRetry, warmDelay)
+        warmDelay = minOf(warmDelay * 2, WARM_RETRY_MAX_MS)
+    }
+
+    /** The open link failed between commands; drop it and ask for it again later. */
+    private fun linkFailed(message: String) {
+        if (busy) return fail(message)
+        log("Open link: $message")
+        closeTransport()
+        scheduleWarm()
     }
 
     fun shutdown() {
@@ -257,8 +309,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) linkUp = true
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) linkUp = false
             if (!busy) {
-                // Nothing to fail between commands: the open link dropped, so the next one connects afresh.
-                if (!linkUp) { log("The open link dropped (status $status)"); closeTransport() }
+                // Between commands: open a warm link's services, or ask again for a link that dropped.
+                if (!linkUp) linkFailed(if (warming) "couldn't connect (status $status)" else "dropped (status $status)")
+                else if (warming) g.discoverServices()
                 return@onMain
             }
             // A dead link cannot carry the hand-off, so skip it by clearing sessionStarted.
@@ -270,20 +323,29 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) = onMain(g) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return@onMain fail("Service discovery failed (status $status).")
+            if (status != BluetoothGatt.GATT_SUCCESS) return@onMain linkFailed("Service discovery failed (status $status).")
             val service = g.getService(TRACKER)
             val tx = service?.getCharacteristic(TX)
             val rx = service?.getCharacteristic(RX)
-            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain fail("Your Air's tracker channel is missing.")
+            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Air's tracker channel is missing.")
             txCharacteristic = tx
             rxCharacteristic = rx
-            if (!subscribe(g)) fail("Could not subscribe to the tracker channel.")
+            if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel.")
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) = onMain(g) {
             if (d.uuid != CCCD) return@onMain
-            if (status != BluetoothGatt.GATT_SUCCESS) return@onMain fail("Tracker subscription failed (status $status).")
-            if (!busy) return@onMain
+            if (status != BluetoothGatt.GATT_SUCCESS) return@onMain linkFailed("Tracker subscription failed (status $status).")
+            warmDelay = WARM_RETRY_MS
+            if (!busy) {
+                if (warming) {
+                    warming = false
+                    linkReadyAt = SystemClock.elapsedRealtime()
+                    log("The link is open")
+                    readBattery(linkReadyAt)
+                }
+                return@onMain
+            }
             mark("subscribed")
             if (!usedOpenLink) linkReadyAt = SystemClock.elapsedRealtime()
             waitForQuietChannel()
@@ -292,6 +354,17 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) = onMain(g) {
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) fail("Tracker write failed (status $status).") else writeNext()
+        }
+
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) =
+            onMain(g) { if (c.uuid == BATTERY_LEVEL) batteryRead(value, status) }
+
+        @Deprecated("Used below API 33")
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            if (Build.VERSION.SDK_INT >= 33) return
+            @Suppress("DEPRECATION")
+            val value = c.value?.copyOf() ?: ByteArray(0)
+            onMain(g) { if (c.uuid == BATTERY_LEVEL) batteryRead(value, status) }
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) =
@@ -316,8 +389,29 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
         if (rxSource != null) sessionRx++ else traffic.record(now, packet.size)?.let(log)
+        // Google Health's packets wake the phone now and then even in deep sleep, which keeps the battery line hourly.
+        if (!busy) readBattery(now)
         quietWait?.record(now, packet.size)
         rxSource?.receiveData(packet)?.subscribe({}, { fail("Receive failed: ${it.message}") })?.let(disposables::add)
+    }
+
+    /** Reads the Air's battery over the open link, once per [BATTERY_EVERY_MS], for the step log. */
+    private fun readBattery(now: Long) {
+        if (busy || !linkUp || warming || now - batteryAt < BATTERY_EVERY_MS && batteryAt != 0L) return
+        batteryAt = now
+        val g = gatt ?: return
+        val c = g.services.firstNotNullOfOrNull { it.getCharacteristic(BATTERY_LEVEL) }
+        if (c == null || !g.readCharacteristic(c)) log("Battery: Air not readable, ${phoneBattery()}")
+    }
+
+    private fun batteryRead(value: ByteArray, status: Int) {
+        val air = if (status == BluetoothGatt.GATT_SUCCESS && value.isNotEmpty()) "${value[0].toInt() and 0xFF}%" else "not readable (status $status)"
+        log("Battery: Air $air, ${phoneBattery()}")
+    }
+
+    private fun phoneBattery(): String {
+        val bm = context.getSystemService(BatteryManager::class.java) ?: return "phone unknown"
+        return "phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}"
     }
 
     private fun enqueue(packet: ByteArray) {
@@ -560,7 +654,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 taps, handshakeAttempts, wrongKeys, lostRaces,
                 if (fellBack) "open→new" else if (usedOpenLink) "open" else "new", LinkedHashMap(phases))
         }
-        val end = { if (keepLinkOpen && linkUp && gatt != null) releaseSession() else closeTransport() }
+        val end = {
+            if (keepLinkOpen && linkUp && gatt != null) releaseSession() else { closeTransport(); scheduleWarm() }
+        }
         if (sessionStarted && gatt != null) {
             handOff { end(); done(result()) }
         } else {
@@ -638,6 +734,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val g = gatt
         gatt = null
         linkUp = false
+        warming = false
         txCharacteristic = null
         rxCharacteristic = null
         if (g != null) {
