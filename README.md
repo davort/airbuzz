@@ -59,7 +59,7 @@ Choices that came from measuring on a real Air (test app 0.2–0.4 in the privat
 - **The wrong key.** Every new Golden Gate stack is first offered a key AirBuzz doesn't have (`-10601`). Keeping the same stack up lets the band switch to `BOOTSTRAP`; restarting it fails every time.
 - **The fast-link request** (`CONNECTION_PRIORITY_HIGH`) goes out at once on the open link, but on a new connection only after AirBuzz's own session exists, so it can't help Google Health win the handshake race.
 
-Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. Its step log (shared only when you press Share log) names apps and outcomes, never message text or callers. It never stores message text and has no internet permission.
+Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. Its step log (shared only when you press Share log) names apps and outcomes, never message text or callers, and also keeps one week. It never stores message text and has no internet permission.
 
 ## Build
 
