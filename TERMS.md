@@ -22,6 +22,10 @@ AirBuzz talks to Google Fitbit Air over an unofficial protocol. An update to the
 
 AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. Google, Fitbit and Fitbit Air are trademarks of Google LLC.
 
+## Law
+
+Swedish law applies to these terms. If you use AirBuzz as a consumer and live in another country, you also keep the protection of that country's consumer laws that can't be set aside by agreement.
+
 ## Changes
 
 If these terms change, the new version will be posted in this file, with a new effective date. Earlier versions stay in the file's history on GitHub.
