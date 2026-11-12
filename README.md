@@ -78,4 +78,4 @@ Releases: push a tag `v<versionName>`, such as `v0.7.0`. GitHub Actions (`.githu
 
 ## Licence
 
-GPL-3.0. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+Copyright © 2026 Misek AB. AirBuzz is free software under the GPL-3.0; see `LICENSE`. Code and assets from others keep their own copyright and licences, listed in `THIRD_PARTY_NOTICES.md`.
