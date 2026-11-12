@@ -177,6 +177,9 @@ fun AppIcon(pkg: String, size: Dp) {
  * sheet curve, 220 ms back down, with the dim on the same timing. Drag one down, tap the dim or press Back to close it.
  * It keeps drawing [content] while it sinks, so the caller keeps passing the last content until it has gone. A [full]
  * sheet is Settings: it fills the screen below the status bar and has the page colour; a picker fits its content.
+ * When an open picker's content jumps in height, such as switching Chosen to Contacts, the sheet is laid out at its new
+ * height at once but drawn from where its top was, then glides there (300 ms, in-out): a transform, not a height
+ * animation. Changes under 48 dp, such as an Undo row folding or the keyboard rising, already move frame by frame.
  */
 @Composable
 fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
@@ -184,6 +187,8 @@ fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, c
     val shown = remember { Animatable(0f) }
     val drag = remember { mutableFloatStateOf(0f) }
     var height by remember { mutableIntStateOf(0) }
+    val resize = remember { Animatable(0f) }
+    val jump = with(LocalDensity.current) { 48.dp.toPx() }
     val dismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(visible) {
         if (visible) { drag.floatValue = 0f; shown.animateTo(1f, tween(Motion.SHEET, easing = Motion.Out)) }
@@ -224,11 +229,20 @@ fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, c
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(top = 8.dp)
                 .then(if (full) Modifier.fillMaxHeight() else Modifier)
-                .onSizeChanged { height = it.height }
+                .onSizeChanged {
+                    val delta = (it.height - height).toFloat()
+                    if (!full && visible && height > 0 && shown.value == 1f && kotlin.math.abs(delta) >= jump) scope.launch {
+                        resize.snapTo(resize.value + delta)
+                        resize.animateTo(0f, tween(Motion.SHEET, easing = Motion.InOut))
+                    }
+                    height = it.height
+                }
                 .graphicsLayer {
                     alpha = if (height == 0) 0f else 1f
-                    translationY = (1f - shown.value) * height + drag.floatValue
+                    translationY = (1f - shown.value) * height + drag.floatValue + resize.value
                 }
+                // While a shrunk sheet glides down, fill the gap under it with the sheet's colour.
+                .drawBehind { if (resize.value < 0f) drawRect(if (full) a.bg else a.surface, Offset(0f, size.height - 1f), Size(size.width, -resize.value + 1f)) }
                 .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(if (full) a.bg else a.surface)
                 .draggable(rememberDraggableState { d -> drag.floatValue = (drag.floatValue + d).coerceAtLeast(0f) }, Orientation.Vertical,
                     onDragStopped = { v -> scope.launch { settle(v) } })

@@ -42,6 +42,8 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.6.13** (versionCode 35): the Undo row shows a bin where the person's initial was, and a swiped row's bin slides to that spot. The whole row now shows the time left as a darker fill that empties right to left; the Undo button is a plain outlined button on the surface colour.
 - **0.6.14** (versionCode 36): an Undo row has no hairline above or below it, whichever person was removed; the hairline under it fades back when it folds away.
 - **0.6.15** (versionCode 37): a swiped row turns into its Undo row without moving: both are the same height, the strip already has the Undo row's tint, and only the name and Undo fade in. The hairlines above and below fade out as you swipe and back if you let go early; the one below fades back while the Undo row folds away.
+- **0.6.16** (versionCode 38): segmented buttons (Chosen/Contacts/Anyone, Gentle/Strong, the Activity filter) keep every label centred and still. The check hangs to the left of the selected label without pushing it, and fades in with the fill over 150 ms (#5).
+- **0.6.17** (versionCode 39): segmented buttons drop the check; the selected one is filled and its label turns from muted to ink, same weight, so no label moves (Davor found the check too close to the edge). When a picker sheet changes height at once, such as Chosen to Contacts, it glides to its new height over 300 ms instead of jumping.
 
 ## What it does
 

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -300,7 +301,11 @@ fun AirSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier 
     ))
 }
 
-/** Slim segmented button (decision 26): 40 dp, thin outline, the selected one filled with a check. */
+/**
+ * Slim segmented button (decision 26): 40 dp, thin outline. The selected one is filled and its label is ink, the others
+ * muted; there is no check, and every label keeps its weight and stays centred, so switching never moves one. The fill
+ * and the label colour fade together.
+ */
 @Composable
 fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
     val a = LocalAirColors.current
@@ -308,13 +313,13 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
         options.forEachIndexed { i, (value, label) ->
             if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(a.outline))
             val on = value == selected
-            Row(
-                Modifier.weight(1f).fillMaxHeight().background(if (on) a.selected else Color.Transparent)
+            val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "seg")
+            Box(
+                Modifier.weight(1f).fillMaxHeight().background(a.selected.copy(alpha = a.selected.alpha * shown))
                     .selectable(on, role = Role.RadioButton) { onSelect(value) },
-                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                contentAlignment = Alignment.Center,
             ) {
-                if (on) { GlyphIcon(Glyph.CHECK, 16.dp, a.ink); Spacer(Modifier.width(6.dp)) }
-                Text(label, style = if (on) Type.smallMedium else Type.small, color = a.ink, maxLines = 1, softWrap = false)
+                Text(label, style = Type.small, color = lerp(a.muted, a.ink, shown), maxLines = 1, softWrap = false)
             }
         }
     }
