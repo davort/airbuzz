@@ -12,8 +12,8 @@ cmdline_tools_zip="commandlinetools-linux-16111833_latest.zip"
 # Keep in step with app/ and goldengate/ (compileSdk, ndkVersion, cmake version, AGP's default build-tools).
 sdk_packages=(
   "platform-tools"
-  "platforms;android-35"
-  "build-tools;34.0.0"
+  "platforms;android-36"
+  "build-tools;35.0.0"
   "ndk;27.2.12479018"
   "cmake;3.22.1"
 )

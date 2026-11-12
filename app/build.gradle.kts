@@ -6,11 +6,11 @@ plugins {
 
 android {
     namespace = "com.davort.airbuzz"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.davort.airbuzz"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 26
         versionName = "0.6.4"
         ndk { abiFilters += listOf("arm64-v8a") }
