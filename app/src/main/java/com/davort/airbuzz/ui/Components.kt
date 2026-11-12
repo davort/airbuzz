@@ -75,7 +75,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +95,7 @@ enum class Glyph(val lines: List<List<Offset>>) {
     PLUS(listOf(listOf(Offset(12f, 5f), Offset(12f, 19f)), listOf(Offset(5f, 12f), Offset(19f, 12f)))),
     CHECK(listOf(listOf(Offset(5f, 12.5f), Offset(9.5f, 17f), Offset(19f, 7.5f)))),
     PAUSE(listOf(listOf(Offset(9f, 6f), Offset(9f, 18f)), listOf(Offset(15f, 6f), Offset(15f, 18f)))),
+    CLOSE(listOf(listOf(Offset(6.5f, 6.5f), Offset(17.5f, 17.5f)), listOf(Offset(17.5f, 6.5f), Offset(6.5f, 17.5f)))),
 }
 
 /** Icons with curves, as SVG paths on the same 24-unit grid, drawn from the Paper design. */
@@ -107,6 +110,12 @@ enum class Curve(val d: String) {
     BELL("M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0"),
     PHONE("M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"),
     APPS("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"),
+    PEOPLE("M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M21 19v-1a4 4 0 0 0-3-3.87M15.5 3.63a3.5 3.5 0 0 1 0 6.75"),
+    CONTACTS("M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a2.5 2.5 0 0 1 0-5H20M15 14a3 3 0 0 0-6 0M12 10.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4"),
+    /** A phone with waves, for "Anyone". */
+    CALLING("M14 2.5a8 8 0 0 1 7.5 7.5M14 6a4.5 4.5 0 0 1 4 4M21 16.5v3a2 2 0 0 1-2.2 2A18 18 0 0 1 2.5 5.2 2 2 0 0 1 4.5 3h3a2 2 0 0 1 2 1.7c.13.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.1L8.5 10.9a15 15 0 0 0 4.6 4.6l1.3-1.3a2 2 0 0 1 2.1-.45c.9.34 1.84.57 2.8.7a2 2 0 0 1 1.7 2.05z"),
+    MOON("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"),
+    BIN("M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"),
 }
 
 @Composable
@@ -211,8 +220,15 @@ fun Label(text: String, modifier: Modifier = Modifier, color: Color = LocalAirCo
 /** One piece of a rule sentence: plain words, or a blank that is one setting. */
 sealed interface Part {
     data class Words(val text: String) : Part
-    /** [label] names the setting for TalkBack; [after] is punctuation kept on the blank's line; [open] while its sheet is up. */
-    data class Blank(val label: String, val value: String, val after: String = "", val open: Boolean = false, val onClick: () -> Unit) : Part
+    /**
+     * [label] names the setting for TalkBack; [after] is punctuation kept on the blank's line; [open] while its sheet is up.
+     * [shorter] are ever shorter wordings of [value]; the blank shows the longest one that fits on a line, so a name is
+     * never cut, and the last one when none fit.
+     */
+    data class Blank(
+        val label: String, val value: String, val after: String = "", val open: Boolean = false,
+        val shorter: List<String> = emptyList(), val onClick: () -> Unit,
+    ) : Part
 }
 
 /**
@@ -223,7 +239,16 @@ sealed interface Part {
 @Composable
 fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle = Type.sentence) {
     val a = LocalAirColors.current
-    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val blankStyle = style.copy(fontWeight = FontWeight(560), lineHeight = 30.sp)
+    BoxWithConstraints(modifier) {
+    // The blank's padding, the gap before its arrow and the arrow itself.
+    val chrome = with(density) { (8 + 8 + 3 + 13).dp.roundToPx() }
+    fun fits(text: String, after: String) =
+        measurer.measure(text, blankStyle, softWrap = false).size.width + chrome +
+            (if (after.isEmpty()) 0 else measurer.measure(after, style, softWrap = false).size.width) <= constraints.maxWidth
+    FlowRow(Modifier, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         parts.forEach { part ->
             when (part) {
                 is Part.Words -> part.text.split(" ").filter { it.isNotEmpty() }.forEach { word ->
@@ -248,7 +273,8 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // A line as tall as the blank, so the words centre in it and share the sentence's baseline.
-                        Text(part.value, style = style.copy(fontWeight = FontWeight(560), lineHeight = 30.sp), color = a.accent, softWrap = false, maxLines = 1)
+                        val shown = (listOf(part.value) + part.shorter).let { all -> all.firstOrNull { fits(it, part.after) } ?: all.last() }
+                        Text(shown, style = blankStyle, color = a.accent, softWrap = false, maxLines = 1)
                         Spacer(Modifier.width(3.dp))
                         Caret(a.accent)
                     }
@@ -256,6 +282,7 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                 }
             }
         }
+    }
     }
 }
 

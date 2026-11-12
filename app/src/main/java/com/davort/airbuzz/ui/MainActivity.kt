@@ -189,7 +189,7 @@ fun App(engine: Engine, settings: AirSettings) {
     SheetLayer(sheet != null, onDismiss = { sheet = null }) {
         val close = { sheet = null }
         when (lastSheet[0]) {
-            SheetKind.PEOPLE -> PeopleSheet(engine, settings, close)
+            SheetKind.PEOPLE -> PeopleSheet(engine, settings, close) { sheet = SheetKind.QUIET }
             SheetKind.APPS -> AppsSheet(engine, settings, close)
             SheetKind.PATTERN -> PatternSheet(engine, settings, close)
             SheetKind.QUIET -> QuietSheet(engine, settings, close)
@@ -206,6 +206,10 @@ fun summarize(names: List<String>, none: String): String = when (names.size) {
     2 -> "${names[0]} and ${names[1]}"
     else -> "${names[0]}, ${names[1]} and ${names.size - 2} more"
 }
+
+/** Who rings through quiet times and a pause, such as "Bruna" or "Bruna and Mum", or null when nobody does. */
+fun ringsAnyway(s: AirSettings): String? =
+    if (s.ringAnyway && s.ringAnywayPeople.isNotEmpty()) summarize(s.ringAnywayPeople.map { it.name }, "") else null
 
 fun quietRules(s: AirSettings): List<String> = buildList {
     if (s.quietHours) add("at night")
@@ -292,29 +296,30 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             } }
 
             val who = when (s.callMode) {
-                CallMode.CHOSEN -> summarize(s.people.map { it.name }, "nobody yet")
-                CallMode.CONTACTS -> "my contacts"
-                CallMode.ANYONE -> "anyone"
+                CallMode.CHOSEN -> nameLadder(s.people.map { it.name }, "nobody yet", "person", "people")
+                CallMode.CONTACTS -> listOf("my contacts")
+                CallMode.ANYONE -> listOf("anyone")
             }
             val one = s.callMode == CallMode.ANYONE || (s.callMode == CallMode.CHOSEN && s.people.size <= 1)
             val names = remember(s.apps) { s.apps.map { appLabel(context, it) }.sorted() }
+            val apps = nameLadder(names, "no apps yet", "app", "apps")
             Group(listOf(
                 { RuleItem("Calls", "Rings until answered") {
                     Sentence(listOf(
                         Part.Words("When"),
-                        Part.Blank("Who can ring", who, open = sheet == SheetKind.PEOPLE) { open(SheetKind.PEOPLE) },
+                        Part.Blank("Who can ring", who[0], open = sheet == SheetKind.PEOPLE, shorter = who.drop(1)) { open(SheetKind.PEOPLE) },
                         Part.Words((if (one) "calls" else "call") + " from any app, ring my Air."),
                     ))
                 } },
                 { RuleItem("Messages", "Max 1 buzz per 15 s") {
                     Sentence(listOf(
                         Part.Words("When"),
-                        Part.Blank("Apps that tap", summarizeApps(names), open = sheet == SheetKind.APPS) { open(SheetKind.APPS) },
+                        Part.Blank("Apps that tap", apps[0], open = sheet == SheetKind.APPS, shorter = apps.drop(1)) { open(SheetKind.APPS) },
                         Part.Words(if (names.size == 1) "messages, tap" else "message, tap"),
                         Part.Blank("Taps per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
                     ))
                 } },
-                { RuleItem("Quiet", "Chosen callers still ring") {
+                { RuleItem("Quiet", if (ringsAnyway(s) == null) "Calls too" else s.ringAnywayPeople.size.let { n -> if (n == 1) "1 person rings anyway" else "$n people ring anyway" }) {
                     Sentence(listOf(
                         Part.Words("Stay quiet"),
                         Part.Blank("When to stay quiet", summarizeQuiet(quietRules(s)), after = ".", open = sheet == SheetKind.QUIET) { open(SheetKind.QUIET) },
@@ -371,16 +376,22 @@ fun PausedCard(s: AirSettings, now: Long, onResume: () -> Unit, onClick: () -> U
             Pill("Resume", onResume, small = true)
         }
         Text(
-            if (s.people.isEmpty()) "Nobody can ring your Air until then." else "Only ${summarize(s.people.map { it.name }, "")} can ring your Air.",
+            ringsAnyway(s)?.let { "Only $it can ring your Air until then." } ?: "Nothing buzzes until then.",
             style = Type.small, color = a.muted,
         )
     }
 }
 
-fun summarizeApps(names: List<String>) = when (names.size) {
-    0 -> "no apps yet"
-    1, 2, 3 -> names.joinToString(", ")
-    else -> "${names[0]}, ${names[1]} and ${names.size - 2} more"
+/**
+ * Every way to name [names] in a blank, longest first: all of them, then fewer whole names and "and N more", then
+ * only the count, such as "5 apps". The blank shows the first that fits, so a long app name is never cut.
+ */
+fun nameLadder(names: List<String>, none: String, one: String, many: String): List<String> {
+    if (names.isEmpty()) return listOf(none)
+    fun list(k: Int) = if (k == names.size) {
+        if (k == 1) names[0] else names.dropLast(1).joinToString(", ") + " and " + names.last()
+    } else names.take(k).joinToString(", ") + " and ${names.size - k} more"
+    return (names.size downTo 1).map(::list) + "${names.size} ${if (names.size == 1) one else many}"
 }
 
 fun summarizeQuiet(rules: List<String>) = when (rules.size) {
@@ -532,7 +543,7 @@ fun seconds(ms: Long?) = ms?.let { String.format(java.util.Locale.ROOT, "%.1f s"
 
 /** Adds a person picked in the system contact picker, which grants access to that one number only. */
 @Composable
-fun rememberContactPicker(engine: Engine): () -> Unit {
+fun rememberContactPicker(engine: Engine, ringAnyway: Boolean = false): () -> Unit {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = result.data?.data ?: return@rememberLauncherForActivityResult
@@ -541,7 +552,11 @@ fun rememberContactPicker(engine: Engine): () -> Unit {
             if (c.moveToFirst()) {
                 val name = c.getString(0) ?: return@use
                 val number = c.getString(1)?.let { Rules.normalize(it, regionOf(context)) }
-                engine.store.update { s -> if (s.people.any { it.name == name && it.number == number }) s else s.copy(people = s.people + Person(name, number)) }
+                val p = Person(name, number)
+                engine.store.update { s ->
+                    if (ringAnyway) { if (p in s.ringAnywayPeople) s else s.copy(ringAnywayPeople = s.ringAnywayPeople + p) }
+                    else if (p in s.people) s else s.copy(people = s.people + p)
+                }
             }
         }
     }

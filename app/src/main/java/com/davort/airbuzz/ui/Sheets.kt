@@ -95,6 +95,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.unit.Dp
 import java.util.Locale
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.key
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 data class AppInfo(val pkg: String, val label: String)
 
@@ -240,21 +252,47 @@ fun LineRow(first: Boolean, onClick: (() -> Unit)? = null, content: @Composable 
 }
 
 @Composable
-fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
+fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () -> Unit) {
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    // Unticked people stay in the list until the sheet closes, so a slip can be undone.
-    var unticked by remember { mutableStateOf(setOf<Person>()) }
-    DisposableEffect(Unit) {
-        onDispose { if (unticked.isNotEmpty()) engine.store.update { st -> st.copy(people = st.people - unticked) } }
-    }
     Sheet("Who can ring your Air", onClose) {
-        PeopleBody(s, unticked, { p -> unticked = if (p in unticked) unticked - p else unticked + p },
-            recentCallers(entries, s, regionOf(context)), pick,
-            onMode = { m -> engine.store.update { it.copy(callMode = m) } },
-            onAdd = { p -> engine.store.update { st -> st.copy(people = st.people + p) } })
+        Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
+            engine.store.update { it.copy(callMode = m) }
+        }
+        ScrollUnderFade {
+            // Only Chosen has a list; Contacts and Anyone say who rings in one sentence, with room around it.
+            when (s.callMode) {
+                CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Air.", roomy = false)
+                CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Air. Numbers you haven't saved stay on your phone.", roomy = true)
+                CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Air, including numbers you haven't saved.", roomy = true)
+            }
+            if (s.callMode == CallMode.CHOSEN) {
+                Column {
+                    Label(if (s.people.size >= 5) "Your people · ${s.people.size}" else "Your people")
+                    Gap(4)
+                    PeopleRows(s.people, firstLine = false) { list -> engine.store.update { it.copy(people = list) } }
+                    TextAction("Add people", pick)
+                }
+                val recent = recentCallers(entries, s, regionOf(context))
+                if (recent.isNotEmpty()) Column {
+                    Label("Called recently")
+                    Gap(4)
+                    recent.forEachIndexed { i, p ->
+                        LineRow(i == 0) {
+                            Avatar(p.name)
+                            TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
+                            Pill("Add", { engine.store.update { st -> st.copy(people = st.people + p) } }, filled = false, small = true)
+                            IconAction("Hide ${p.name}", { engine.store.update { st -> st.copy(hiddenCallers = st.hiddenCallers + (p.number ?: p.name)) } }) {
+                                GlyphIcon(Glyph.CLOSE, 18.dp, a.muted)
+                            }
+                        }
+                    }
+                }
+            }
+            QuietNote(s, openQuiet)
+        }
     }
 }
 
@@ -263,40 +301,121 @@ fun recentCallers(entries: List<com.davort.airbuzz.data.Entry>, s: Settings, reg
         .map { Person(it.who!!, it.number?.let { n -> Rules.normalize(n, region) }) }
         .distinct()
         .filter { r -> s.people.none { it.name == r.name || (r.number != null && it.number == r.number) } }
+        .filter { (it.number ?: it.name) !in s.hiddenCallers }
         .takeLast(5).reversed()
 
+/** The middle of a sheet: it scrolls when it is too tall, and fades out above the button while there is more below. */
 @Composable
-fun PeopleBody(
-    s: Settings, unticked: Set<Person>, toggle: (Person) -> Unit, recent: List<Person>, pick: () -> Unit,
-    onMode: (CallMode) -> Unit, onAdd: (Person) -> Unit,
-) {
+fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
     val a = LocalAirColors.current
-    Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode, onSelect = onMode)
-    Text(when (s.callMode) {
-        CallMode.CHOSEN -> "Only the people below ring your Air."
-        CallMode.CONTACTS -> "Callers shown by name ring your Air. Only the people below ring through quiet times."
-        CallMode.ANYONE -> "Every call rings your Air. Only the people below ring through quiet times."
-    }, style = Type.small, color = a.muted)
-    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-        s.people.forEachIndexed { i, p ->
-            LineRow(i == 0, onClick = { toggle(p) }) {
+    val scroll = rememberScrollState()
+    Box(Modifier.weight(1f, fill = false)) {
+        Column(Modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
+        if (scroll.canScrollForward) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, a.surface))))
+    }
+}
+
+/** An icon in a soft circle beside one sentence that says what the chosen mode does. */
+@Composable
+private fun Explainer(curve: Curve, text: String, roomy: Boolean) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth().padding(top = if (roomy) 20.dp else 8.dp, bottom = if (roomy) 20.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) { CurveIcon(curve, 22.dp, a.ink, 1.8f) }
+        Text(text, style = Type.body, color = a.ink, modifier = Modifier.weight(1f))
+    }
+}
+
+/** Says whether quiet times silence calls, and opens Stay quiet, where people can be let through. */
+@Composable
+private fun QuietNote(s: Settings, onClick: () -> Unit) {
+    val a = LocalAirColors.current
+    val who = ringsAnyway(s)
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(a.bg).clickable(role = Role.Button, onClick = onClick)
+        .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CurveIcon(Curve.MOON, 20.dp, a.muted, 1.8f)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(if (who == null) "Quiet times silence calls too." else "Only $who ${ring(s.ringAnywayPeople.size)} in quiet times.", style = Type.small, color = a.muted)
+            Text(if (who == null) "Let someone ring anyway" else "Change in Stay quiet", style = Type.smallMedium, color = a.accent)
+        }
+        GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
+    }
+}
+
+fun ring(people: Int) = if (people == 1) "rings" else "ring"
+
+/** A 40 dp round tap target around a small icon, such as a bin. */
+@Composable
+fun IconAction(description: String, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Box(Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = description, onClick = onClick)
+        .semantics { contentDescription = description }, contentAlignment = Alignment.Center) { icon() }
+}
+
+/** How long a removed person's Undo row stays. */
+const val UNDO_MS = 5000
+
+private data class Removed(val index: Int, val person: Person)
+
+/**
+ * People, each with a bin. The bin removes the person at once and leaves an Undo row in their place, with a line
+ * under it that drains for five seconds; then the row folds away. Removing someone else ends the last Undo early.
+ * [firstLine] draws a hairline above the first row, for a list that follows other rows.
+ */
+@Composable
+fun PeopleRows(people: List<Person>, firstLine: Boolean, onChange: (List<Person>) -> Unit) {
+    val a = LocalAirColors.current
+    var removed by remember { mutableStateOf<Removed?>(null) }
+    val rows: List<Pair<Person, Boolean>> = people.map { it to false }.toMutableList().apply {
+        removed?.let { add(it.index.coerceAtMost(size), it.person to true) }
+    }
+    rows.forEachIndexed { i, (p, gone) ->
+        key(p, gone) {
+            if (gone) UndoRow(p, line = firstLine || i > 0,
+                onUndo = { removed?.let { r -> onChange(people.toMutableList().apply { add(r.index.coerceAtMost(size), r.person) }) }; removed = null },
+                onGone = { removed = null })
+            else LineRow(!firstLine && i == 0) {
                 Avatar(p.name)
                 TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
-                Mark(p !in unticked, radio = false)
+                IconAction("Remove ${p.name}", {
+                    removed = Removed(people.indexOf(p), p)
+                    onChange(people - p)
+                }) { CurveIcon(Curve.BIN, 20.dp, a.muted, 1.8f) }
             }
         }
-        if (recent.isNotEmpty()) {
-            Gap(12)
-            Label("Called recently")
-            recent.forEachIndexed { i, p ->
-                LineRow(i == 0) {
-                    Avatar(p.name)
-                    TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
-                    Pill("Add", { onAdd(p) }, filled = false, small = true)
+    }
+    // The Undo row's draining line stands in for the hairline above "Add people".
+    if (rows.isNotEmpty() && !rows.last().second) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
+}
+
+@Composable
+private fun UndoRow(p: Person, line: Boolean, onUndo: () -> Unit, onGone: () -> Unit) {
+    val a = LocalAirColors.current
+    val left = remember { Animatable(1f) }
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(Unit) {
+        left.animateTo(0f, tween(UNDO_MS, easing = LinearEasing))
+        shown.targetState = false
+    }
+    LaunchedEffect(shown.isIdle, shown.currentState) { if (shown.isIdle && !shown.currentState) onGone() }
+    AnimatedVisibility(shown, enter = fadeIn(tween(150, easing = Motion.Out)),
+        exit = shrinkVertically(tween(220, easing = Motion.InOut)) + fadeOut(tween(150, easing = Motion.In))) {
+        Column(Modifier.fillMaxWidth()) {
+            if (line) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
+            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.alpha(0.45f)) { Avatar(p.name) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(p.name, style = Type.bodyMedium, color = a.muted)
+                    Label("Removed")
                 }
+                Pill("Undo", onUndo, filled = false, small = true)
+            }
+            Box(Modifier.fillMaxWidth().height(2.dp).background(a.line)) {
+                Box(Modifier.fillMaxWidth(left.value).height(2.dp).background(a.accent))
             }
         }
-        TextAction("Add people", pick)
     }
 }
 
@@ -360,8 +479,9 @@ fun PatternBody(taps: Int, onSelect: (Int) -> Unit, onTry: (Int) -> Unit) {
 @Composable
 fun QuietSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     var editing by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
+    val pick = rememberContactPicker(engine, ringAnyway = true)
     Sheet("Stay quiet", onClose) {
-        QuietBody(s, { change -> engine.store.update(change) }) { editing = it }
+        ScrollUnderFade { Column { QuietBody(s, { change -> engine.store.update(change) }, pick) { editing = it } } }
     }
     editing?.let { start ->
         val minutes = if (start) s.quietStart else s.quietEnd
@@ -382,7 +502,7 @@ fun QuietSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
 }
 
 @Composable
-fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, editTime: (Boolean) -> Unit) {
+fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () -> Unit, editTime: (Boolean) -> Unit) {
     val a = LocalAirColors.current
     Column {
         LineRow(true, onClick = { update { it.copy(quietHours = !it.quietHours) } }) {
@@ -401,8 +521,17 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, editTime: (
             TwoLine("While I use the phone", Modifier.weight(1f)) { Label("Screen on and unlocked") }
             AirSwitch(s.quietInUse, { on -> update { it.copy(quietInUse = on) } })
         }
+        // Off by default with nobody in it: nobody rings through quiet times until people are added (decision 42).
+        LineRow(false, onClick = { update { it.copy(ringAnyway = !it.ringAnyway) } }) {
+            TwoLine("Let some people ring anyway", Modifier.weight(1f)) { Label(if (s.ringAnyway) "Through quiet times and pauses" else "Off") }
+            AirSwitch(s.ringAnyway, { on -> update { it.copy(ringAnyway = on) } })
+        }
+        if (s.ringAnyway) {
+            PeopleRows(s.ringAnywayPeople, firstLine = true) { list -> update { it.copy(ringAnywayPeople = list) } }
+            TextAction("Add people", pick)
+        }
     }
-    Text("Chosen callers always ring.", style = Type.small, color = a.muted)
+    if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)
 }
 
 fun clock(minutes: Int) = String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60)
@@ -432,12 +561,13 @@ fun PauseSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
         } else engine.store.update { it.copy(pausedUntil = until) }
         onClose()
     }) {
-        PauseBody(options, choice) { choice = it }
+        PauseBody(options, choice, ringsAnyway(s)?.let { "$it still ${ring(s.ringAnywayPeople.size)} while paused, but not when AirBuzz is off." }
+            ?: "Nothing buzzes while paused.") { choice = it }
     }
 }
 
 @Composable
-fun PauseBody(options: List<Pair<String, Long?>>, choice: Int, onChoose: (Int) -> Unit) {
+fun PauseBody(options: List<Pair<String, Long?>>, choice: Int, note: String, onChoose: (Int) -> Unit) {
     val a = LocalAirColors.current
     Column {
         options.forEachIndexed { i, (name, until) ->
@@ -447,5 +577,5 @@ fun PauseBody(options: List<Pair<String, Long?>>, choice: Int, onChoose: (Int) -
             }
         }
     }
-    Text("Chosen callers still ring while AirBuzz is paused, but not when it's off.", style = Type.small, color = a.muted)
+    Text(note, style = Type.small, color = a.muted)
 }

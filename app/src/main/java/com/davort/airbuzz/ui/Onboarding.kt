@@ -276,7 +276,7 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Who can ring your Air?", "Calls from these people ring until you answer, even at night or while paused.") {
+        StepHead("Who can ring your Air?", "Calls from these people ring until you answer.") {
             IconCircle(Curve.PHONE)
         }
         Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
