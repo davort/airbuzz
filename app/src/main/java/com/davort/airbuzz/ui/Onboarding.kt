@@ -305,11 +305,11 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
 @Composable
 private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit, next: () -> Unit) {
     val context = LocalContext.current
-    val apps = remember { installedApps(context) }
+    val apps = AppList.apps.collectAsStateWithLifecycle().value
     val busy = remember { engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount() }
     // Chosen apps, then known messengers, then the apps that notified most this week; six at most, fixed while open.
-    val shown = remember {
-        apps.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in MESSENGERS }, { -(busy[it.pkg] ?: 0) }, { it.label.lowercase() }))
+    val shown = remember(apps == null) {
+        apps.orEmpty().sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in MESSENGERS }, { -(busy[it.pkg] ?: 0) }, { it.label.lowercase() }))
             .filter { it.pkg in s.apps || it.pkg in MESSENGERS || (busy[it.pkg] ?: 0) > 0 }.take(6)
     }
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
@@ -319,7 +319,7 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
         Group(shown.map { app ->
             @Composable {
                 GroupRow(vertical = 10.dp) {
-                    appIcon(context, app.pkg)?.let { Image(it, null, Modifier.size(32.dp)) }
+                    AppIcon(app.pkg, 32.dp)
                     Text(app.label, style = Type.bodyMedium, color = LocalAirColors.current.ink, modifier = Modifier.weight(1f))
                     AirSwitch(app.pkg in s.apps, { on -> engine.store.update { st -> st.copy(apps = if (on) st.apps + app.pkg else st.apps - app.pkg) } },
                         Modifier.semantics { contentDescription = app.label })

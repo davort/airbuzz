@@ -54,6 +54,16 @@ import com.davort.airbuzz.rules.Person
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings
 import java.util.Calendar
+import java.util.Collections
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.unit.Dp
 import java.util.Locale
 
 data class AppInfo(val pkg: String, val label: String)
@@ -69,10 +79,36 @@ fun installedApps(context: Context): List<AppInfo> {
         .sortedBy { it.label.lowercase() }
 }
 
-private val iconCache = HashMap<String, ImageBitmap?>()
+/**
+ * The launcher apps, read in the background: reading about 250 app names on the main thread froze AirBuzz for up to
+ * five seconds the first time the apps picker opened. [App] re-reads it whenever AirBuzz comes back on screen, so a
+ * new install shows up; it is null until the first read finishes.
+ */
+object AppList {
+    private val list = MutableStateFlow<List<AppInfo>?>(null)
+    val apps: StateFlow<List<AppInfo>?> = list
+    suspend fun refresh(context: Context) { list.value = withContext(Dispatchers.IO) { installedApps(context) } }
+}
 
-fun appIcon(context: Context, pkg: String): ImageBitmap? = iconCache.getOrPut(pkg) {
-    runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+private val iconCache = Collections.synchronizedMap(HashMap<String, ImageBitmap?>())
+private val labelCache = Collections.synchronizedMap(HashMap<String, String>())
+
+/** One app's name, without reading the whole list. */
+fun appLabel(context: Context, pkg: String): String = labelCache.getOrPut(pkg) {
+    val pm = context.packageManager
+    runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+}
+
+/** An app's icon, loaded off the main thread; its space is kept while it loads, so rows don't shift. */
+@Composable
+fun AppIcon(pkg: String, size: Dp) {
+    val context = LocalContext.current
+    val icon by produceState(iconCache[pkg], pkg) {
+        if (value == null) value = withContext(Dispatchers.IO) {
+            iconCache.getOrPut(pkg) { runCatching { context.packageManager.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
+        }
+    }
+    Box(Modifier.size(size)) { icon?.let { Image(it, null, Modifier.size(size)) } }
 }
 
 /** A bottom sheet: handle, serif title (decision 30), the body, and one full-width button. */
@@ -181,23 +217,26 @@ fun PeopleBody(
 fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     val context = LocalContext.current
     val a = LocalAirColors.current
-    val apps = remember { installedApps(context) }
+    val apps by AppList.apps.collectAsStateWithLifecycle()
     val weekCounts = remember {
         engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount()
     }
     var query by remember { mutableStateOf("") }
     // Chosen apps first, then the ones that notified most this week, then by name. Order is fixed while open.
-    val ordered = remember { apps.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { -(weekCounts[it.pkg] ?: 0) }, { it.label.lowercase() })) }
+    val ordered = remember(apps == null) { apps?.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { -(weekCounts[it.pkg] ?: 0) }, { it.label.lowercase() })) }
     Sheet("Apps that tap", onClose) {
         Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) Text("Search apps", style = Type.body, color = a.muted)
             BasicTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent))
         }
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            ordered.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }.forEachIndexed { i, app ->
+        // Lazy, so only the rows on screen are built and only their icons load.
+        val shown = ordered.orEmpty().filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
+        if (ordered == null) Label("Reading your apps…", Modifier.height(420.dp))
+        LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            itemsIndexed(shown, key = { _, app -> app.pkg }) { i, app ->
                 LineRow(i == 0, onClick = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }) {
-                    appIcon(context, app.pkg)?.let { Image(it, null, Modifier.size(36.dp)) }
+                    AppIcon(app.pkg, 36.dp)
                     val n = weekCounts[app.pkg] ?: 0
                     TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
                     Mark(app.pkg in s.apps, radio = false)

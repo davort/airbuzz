@@ -148,6 +148,9 @@ fun App(engine: Engine, settings: AirSettings) {
         go(if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME)
     }
     val open: (SheetKind) -> Unit = { sheet = it }
+    val context = LocalContext.current
+    val resumed = rememberResumeTick()
+    LaunchedEffect(resumed) { AppList.refresh(context.applicationContext) }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         if (!settings.onboarded) {
             OnboardingScreen(engine, settings)
@@ -210,9 +213,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
     val context = LocalContext.current
     val a = LocalAirColors.current
     val entries by engine.log.entries.collectAsStateWithLifecycle()
-    val tick = rememberResumeTick()
     val now = rememberNow()
-    val apps = remember(tick) { installedApps(context) }
     val paused = s.enabled && s.pausedUntil > now
     val notificationsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -277,7 +278,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 CallMode.ANYONE -> "anyone"
             }
             val one = s.callMode == CallMode.ANYONE || (s.callMode == CallMode.CHOSEN && s.people.size <= 1)
-            val names = s.apps.map { pkg -> apps.firstOrNull { it.pkg == pkg }?.label ?: pkg }.sorted()
+            val names = remember(s.apps) { s.apps.map { appLabel(context, it) }.sorted() }
             Group(listOf(
                 { RuleItem("Calls", "Rings until answered") {
                     Sentence(listOf(
