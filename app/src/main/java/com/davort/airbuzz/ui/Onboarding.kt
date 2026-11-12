@@ -75,20 +75,14 @@ private val MESSENGERS = listOf(
  * themselves when AirBuzz comes back from Android's dialogs and settings, as Setup does.
  */
 @Composable
-fun OnboardingScreen(engine: Engine, s: Settings) {
+fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
     var step by rememberSaveable { mutableIntStateOf(0) }
-    var appsSheet by rememberSaveable { mutableStateOf(false) }
     BackHandler(step > 0) { step-- }
     val next = { step = (step + 1).coerceAtMost(STEPS - 1) }
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp)) {
         StepBar(step) { step-- }
-        // Next moves the steps left, Back moves them right; the leaving step goes quickly (decision 40).
-        val dx = with(LocalDensity.current) { 28.dp.roundToPx() }
-        AnimatedContent(step, Modifier.weight(1f), label = "step", transitionSpec = {
-            val dir = if (targetState > initialState) 1 else -1
-            (slideInHorizontally(tween(240, easing = Motion.Out)) { dir * dx } + fadeIn(tween(240, easing = Motion.Out))) togetherWith
-                (slideOutHorizontally(tween(120, easing = Motion.In)) { -dir * dx } + fadeOut(tween(120, easing = Motion.In)))
-        }) { shown ->
+        // Steps change like pages (decision 40): Next brings the next one in from the right, Back from the left.
+        AnimatedContent(step, Modifier.weight(1f), label = "step", transitionSpec = { pageChange(targetState > initialState) }) { shown ->
             Column(Modifier.fillMaxSize()) {
                 when (shown) {
                     0 -> Welcome(next)
@@ -96,13 +90,12 @@ fun OnboardingScreen(engine: Engine, s: Settings) {
                     2 -> KeepRunning(next)
                     3 -> SeeAlerts(next)
                     4 -> WhoCanRing(engine, s, next)
-                    5 -> WhichApps(engine, s, { appsSheet = true }, next)
+                    5 -> WhichApps(engine, s, openApps, next)
                     else -> FeelIt(engine)
                 }
             }
         }
     }
-    if (appsSheet) AppsSheet(engine, s) { appsSheet = false }
 }
 
 @Composable

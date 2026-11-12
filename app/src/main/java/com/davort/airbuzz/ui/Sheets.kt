@@ -23,11 +23,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -54,6 +52,38 @@ import com.davort.airbuzz.rules.Person
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings
 import java.util.Calendar
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.launch
 import java.util.Collections
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,23 +141,80 @@ fun AppIcon(pkg: String, size: Dp) {
     Box(Modifier.size(size)) { icon?.let { Image(it, null, Modifier.size(size)) } }
 }
 
-/** A bottom sheet: handle, serif title (decision 30), the body, and one full-width button. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Settings and every picker are sheets that rise from the bottom over the dimmed page (decision 40): 300 ms in on the
+ * sheet curve, 220 ms back down, with the dim on the same timing. Drag one down, tap the dim or press Back to close it.
+ * It keeps drawing [content] while it sinks, so the caller keeps passing the last content until it has gone. A [full]
+ * sheet is Settings: it fills the screen below the status bar and has the page colour; a picker fits its content.
+ */
 @Composable
-fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction: () -> Unit = onClose, content: @Composable ColumnScope.() -> Unit) {
+fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val a = LocalAirColors.current
-    ModalBottomSheet(
-        onDismissRequest = onClose,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = a.surface,
-        tonalElevation = 0.dp,
-        scrimColor = Color.Black.copy(alpha = if (a.dark) 0.55f else 0.32f),
-        dragHandle = { Box(Modifier.padding(top = 10.dp).size(width = 32.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(a.context)) },
-    ) {
-        SheetBody(title, action, onAction, content)
+    val shown = remember { Animatable(0f) }
+    val drag = remember { mutableFloatStateOf(0f) }
+    var height by remember { mutableIntStateOf(0) }
+    val dismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(visible) {
+        if (visible) { drag.floatValue = 0f; shown.animateTo(1f, tween(Motion.SHEET, easing = Motion.Out)) }
+        else shown.animateTo(0f, tween(Motion.SHEET_BACK, easing = Motion.Out))
+    }
+    if (!visible && shown.value == 0f) return
+    val fast = with(LocalDensity.current) { 1200.dp.toPx() }
+    // Let go past a quarter of the sheet, or with a flick, and it closes; otherwise it springs back.
+    suspend fun settle(velocity: Float) {
+        if (drag.floatValue > height / 4f || velocity > fast) dismiss()
+        else animate(drag.floatValue, 0f, velocity, spring(stiffness = Spring.StiffnessMediumLow)) { v, _ -> drag.floatValue = v }
+    }
+    val scope = rememberCoroutineScope()
+    val nested = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y >= 0f || drag.floatValue <= 0f) return Offset.Zero
+                val used = maxOf(available.y, -drag.floatValue)
+                drag.floatValue += used
+                return Offset(0f, used)
+            }
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                drag.floatValue += available.y
+                return Offset(0f, available.y)
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (drag.floatValue <= 0f) return Velocity.Zero
+                settle(available.y)
+                return available
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        val p = shown.value * (1f - if (height > 0) (drag.floatValue / height).coerceIn(0f, 1f) else 0f)
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = p }.background(Color.Black.copy(alpha = if (a.dark) 0.55f else 0.32f))
+            .pointerInput(Unit) { detectTapGestures { dismiss() } })
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(top = 8.dp)
+                .then(if (full) Modifier.fillMaxHeight() else Modifier)
+                .onSizeChanged { height = it.height }
+                .graphicsLayer {
+                    alpha = if (height == 0) 0f else 1f
+                    translationY = (1f - shown.value) * height + drag.floatValue
+                }
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(if (full) a.bg else a.surface)
+                .draggable(rememberDraggableState { d -> drag.floatValue = (drag.floatValue + d).coerceAtLeast(0f) }, Orientation.Vertical,
+                    onDragStopped = { v -> scope.launch { settle(v) } })
+                .nestedScroll(nested)
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
+        ) {
+            Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp).size(width = 32.dp, height = 4.dp)
+                .clip(RoundedCornerShape(2.dp)).background(a.context))
+            content()
+        }
     }
 }
+
+/** A picker's body: serif title (decision 30), the body, and one full-width button. [SheetLayer] draws the sheet. */
+@Composable
+fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction: () -> Unit = onClose, content: @Composable ColumnScope.() -> Unit) =
+    SheetBody(title, action, onAction, content)
 
 @Composable
 fun SheetBody(title: String, action: String, onAction: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
@@ -233,7 +320,7 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
         // Lazy, so only the rows on screen are built and only their icons load.
         val shown = ordered.orEmpty().filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
         if (ordered == null) Label("Reading your apps…", Modifier.height(420.dp))
-        LazyColumn(Modifier.heightIn(max = 420.dp)) {
+        LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp)) {
             itemsIndexed(shown, key = { _, app -> app.pkg }) { i, app ->
                 LineRow(i == 0, onClick = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }) {
                     AppIcon(app.pkg, 36.dp)

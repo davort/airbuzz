@@ -93,6 +93,9 @@ import java.util.Date
 
 enum class Screen { HOME, SETTINGS, APPEARANCE, TEST, ACTIVITY, SETUP }
 
+/** Settings and the pages reached from it live in the sheet that rises from the shelf (decision 40). */
+private val Screen.inSheet get() = this == Screen.SETTINGS || this == Screen.APPEARANCE || this == Screen.SETUP || this == Screen.TEST
+
 /** How deep a page sits below Home, which decides whether a move to it slides forward or back. */
 private val Screen.depth get() = when (this) {
     Screen.HOME -> 0
@@ -151,31 +154,47 @@ fun App(engine: Engine, settings: AirSettings) {
     val context = LocalContext.current
     val resumed = rememberResumeTick()
     LaunchedEffect(resumed) { AppList.refresh(context.applicationContext) }
+    val inSheet = screen.inSheet
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         if (!settings.onboarded) {
-            OnboardingScreen(engine, settings)
+            OnboardingScreen(engine, settings) { sheet = SheetKind.APPS }
             return@Box
         }
-        // A deeper page slides in from the right; going back slides it away (decision 40).
-        AnimatedContent(screen, label = "page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
+        // Home and Activity are pages: a deeper page slides in from the right, Back slides it away (decision 40).
+        AnimatedContent(if (inSheet) Screen.HOME else screen, label = "page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
             when (shown) {
-                Screen.HOME -> Home(engine, settings, sheet, go, open)
-                Screen.SETTINGS -> SettingsScreen(engine, settings, go)
-                Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
-                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
                 Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
-                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+                else -> Home(engine, settings, sheet, go, open)
             }
         }
     }
-    sheet?.let { kind ->
+    // Settings rises from the shelf as a sheet over Home; Appearance, the setup checklist and Test change like pages
+    // inside it. While it sinks it keeps showing the page it was on.
+    val sheetPage = remember { arrayOf(Screen.SETTINGS) }
+    if (inSheet) sheetPage[0] = screen
+    SheetLayer(inSheet && settings.onboarded, onDismiss = { go(Screen.HOME) }, full = true) {
+        AnimatedContent(sheetPage[0], Modifier.weight(1f), label = "sheet page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
+            when (shown) {
+                Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
+                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
+                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+                else -> SettingsScreen(engine, settings, go)
+            }
+        }
+    }
+    // The pickers, over whichever page opened them. Back closes the picker before it moves a page.
+    val lastSheet = remember { arrayOfNulls<SheetKind>(1) }
+    sheet?.let { lastSheet[0] = it }
+    BackHandler(sheet != null) { sheet = null }
+    SheetLayer(sheet != null, onDismiss = { sheet = null }) {
         val close = { sheet = null }
-        when (kind) {
+        when (lastSheet[0]) {
             SheetKind.PEOPLE -> PeopleSheet(engine, settings, close)
             SheetKind.APPS -> AppsSheet(engine, settings, close)
             SheetKind.PATTERN -> PatternSheet(engine, settings, close)
             SheetKind.QUIET -> QuietSheet(engine, settings, close)
             SheetKind.PAUSE -> PauseSheet(engine, settings, close)
+            null -> {}
         }
     }
 }

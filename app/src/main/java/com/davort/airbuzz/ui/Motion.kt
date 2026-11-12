@@ -27,10 +27,13 @@ object Motion {
     /** Going to a deeper page, and coming back from it (see [pageChange]). */
     const val PAGE = 360
     const val PAGE_BACK = 300
+    /** Settings and the pickers rising as sheets, and sinking back (see [SheetLayer]). */
+    const val SHEET = 300
+    const val SHEET_BACK = 220
 }
 
 /**
- * Every move between pages (decision 40), measured from Linear's app. The page you go to starts 40 % of the width to
+ * Every move between pages, inside the Settings sheet as well (decision 40), measured from Linear's app. The page you go to starts 40 % of the width to
  * the right and is already fading in, so you see only the end of its slide; the page you leave drifts 15 % the other
  * way and is gone sooner. The two moving apart at different speeds gives the sense of depth. Back mirrors it, a
  * little faster.
