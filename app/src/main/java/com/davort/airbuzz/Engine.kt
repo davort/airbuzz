@@ -400,6 +400,7 @@ class Engine(private val app: Context) {
         NEARBY("AirBuzz isn't allowed to use Nearby devices", "Allow"),
         NO_AIR("No Fitbit Air is paired with this phone", null),
         GOOGLE_HEALTH("Google Health kept your Fitbit Air busy", null),
+        SILENT("Your Fitbit Air didn't answer", null),
         OUT_OF_REACH("Your Fitbit Air was out of reach", null),
     }
 
@@ -441,7 +442,9 @@ class Engine(private val app: Context) {
             !bluetoothOn() -> Cause.BLUETOOTH_OFF
             Build.VERSION.SDK_INT >= 31 && app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED -> Cause.NEARBY
             band.findBondedAir() == null -> Cause.NO_AIR
-            // A handshake means the Bluetooth link worked, so the Air was in reach and the session was the problem.
+            // The Bluetooth link worked but the Air sent nothing back; seen once, cause unknown (12 Nov).
+            r.bandSilent -> Cause.SILENT
+            // A handshake the Air answered means it was in reach and the session was the problem.
             r.handshakes > 0 -> Cause.GOOGLE_HEALTH
             else -> Cause.OUT_OF_REACH
         }

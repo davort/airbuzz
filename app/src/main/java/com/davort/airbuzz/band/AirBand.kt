@@ -65,6 +65,8 @@ data class BandResult(
     /** "new" connection, the "open" link, or "open→new" when the open link was silent and the command reconnected. */
     val link: String,
     val phases: Map<String, Long>,
+    /** The Air sent nothing back to AirBuzz on a connection of its own, so Google Health wasn't the visible cause. */
+    val bandSilent: Boolean = false,
 )
 
 /**
@@ -105,6 +107,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         const val SETTLE_MS = 3_000L
         /** With nothing received this long after the handshake starts, the open link is treated as dead. */
         const val OPEN_LINK_SILENCE_MS = 2_000L
+        /**
+         * With nothing received this long after a handshake starts on a new connection, the Air isn't answering, so
+         * the attempt ends at once instead of after three 6 s handshakes. It normally answers within about 2 s; on
+         * 12 Nov it answered nothing for 2 minutes, and each try took 20 s.
+         */
+        const val BAND_SILENCE_MS = 3_000L
         const val STRENGTH_KEY = "band_strength"
         /** After a drop or a failed attempt the open link is asked for again after this, doubling up to [WARM_RETRY_MAX_MS]. */
         const val WARM_RETRY_MS = 5_000L
@@ -149,6 +157,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var usedOpenLink = false
     private var fellBack = false
     private var sessionRx = 0
+    /** Anything arrived during this command's secure sessions. */
+    private var heardBand = false
+    private var bandSilent = false
+    /** When a command last ended because the Air didn't answer; 0 once it is heard again. */
+    private var silentSince = 0L
     private var silenceCheck: Runnable? = null
     private val txQueue = ArrayDeque<ByteArray>()
     private var writeInFlight = false
@@ -203,6 +216,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         stopRequested = false
         usedOpenLink = false
         fellBack = false
+        heardBand = false
+        bandSilent = false
         phases.clear()
         handshakeAttempts = 0
         sessionStarted = false
@@ -388,7 +403,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val now = SystemClock.elapsedRealtime()
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
-        if (rxSource != null) sessionRx++ else traffic.record(now, packet.size)?.let(log)
+        if (rxSource != null) { sessionRx++; heardBand = true } else traffic.record(now, packet.size)?.let(log)
+        if (silentSince != 0L) {
+            log("The Fitbit Air is sending again, ${(now - silentSince) / 1000} s after it stopped answering")
+            silentSince = 0L
+        }
         // Google Health's packets wake the phone now and then even in deep sleep, which keeps the battery line hourly.
         if (!busy) readBattery(now)
         quietWait?.record(now, packet.size)
@@ -401,7 +420,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         batteryAt = now
         val g = gatt ?: return
         val c = g.services.firstNotNullOfOrNull { it.getCharacteristic(BATTERY_LEVEL) }
-        if (c == null || !g.readCharacteristic(c)) log("Battery: Air not readable, ${phoneBattery()}")
+        // Every read on 12 Nov said "not readable"; say which way, to find out why.
+        if (c == null) log("Battery: Air has no battery level among ${g.services.size} services, ${phoneBattery()}")
+        else if (!g.readCharacteristic(c)) log("Battery: Air read refused by Android, ${phoneBattery()}")
     }
 
     private fun batteryRead(value: ByteArray, status: Int) {
@@ -502,12 +523,16 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             armHandshakeDeadline(HANDSHAKE_TIMEOUT_MS)
             sessionRx = 0
             silenceCheck?.let(main::removeCallbacks)
-            silenceCheck = if (!usedOpenLink || fellBack) null else Runnable {
+            val onOpenLink = usedOpenLink && !fellBack
+            silenceCheck = Runnable {
                 silenceCheck = null
-                // The band answers a new Gattlink session within about a second; silence means Android stopped
-                // routing notifications to this client. No command has reached the Air yet, so start over.
-                if (endpoint === ep && !sessionStarted && sessionRx == 0) reconnectFresh(g.device, "nothing received")
-            }.also { main.postDelayed(it, OPEN_LINK_SILENCE_MS) }
+                if (endpoint !== ep || sessionStarted || sessionRx != 0) return@Runnable
+                // The band answers a new Gattlink session within about a second. Silence on the open link may mean
+                // Android stopped routing notifications to this client, so try a connection of its own; silence there,
+                // before the Air has said anything in this command, means it isn't answering at all.
+                if (onOpenLink) reconnectFresh(g.device, "nothing received")
+                else if (!heardBand) { bandSilent = true; fail("Your Fitbit Air didn't answer. Try again in a moment.") }
+            }.also { main.postDelayed(it, if (onOpenLink) OPEN_LINK_SILENCE_MS else BAND_SILENCE_MS) }
             log("Starting the secure session (attempt $handshakeAttempts)")
             s.start()
         } catch (e: UnsatisfiedLinkError) {
@@ -652,10 +677,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val result = {
             BandResult(ok, message, firstBuzzAt?.let { it - startedAt }, SystemClock.elapsedRealtime() - startedAt,
                 taps, handshakeAttempts, wrongKeys, lostRaces,
-                if (fellBack) "open→new" else if (usedOpenLink) "open" else "new", LinkedHashMap(phases))
+                if (fellBack) "open→new" else if (usedOpenLink) "open" else "new", LinkedHashMap(phases), bandSilent)
         }
+        if (bandSilent && silentSince == 0L) silentSince = SystemClock.elapsedRealtime()
         val end = {
-            if (keepLinkOpen && linkUp && gatt != null) releaseSession() else { closeTransport(); scheduleWarm() }
+            // A link the Air didn't answer on isn't kept: the next try, and the warm link, start a new connection.
+            if (keepLinkOpen && linkUp && gatt != null && !bandSilent) releaseSession() else { closeTransport(); scheduleWarm() }
         }
         if (sessionStarted && gatt != null) {
             handOff { end(); done(result()) }
