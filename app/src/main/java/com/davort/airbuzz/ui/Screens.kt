@@ -146,7 +146,7 @@ fun AppearanceScreen(engine: Engine, s: Settings, onBack: () -> Unit) {
         AccentCard(dark = false, s.lightAccent) { i -> engine.store.update { it.copy(lightAccent = i) } }
         AccentCard(dark = true, s.darkAccent) { i -> engine.store.update { it.copy(darkAccent = i) } }
         Spacer(Modifier.weight(1f))
-        Text("Each mode keeps its own accent.", style = Type.small, color = a.muted)
+        Text("Each mode keeps its own accent. The greys take a hint of it.", style = Type.small, color = a.muted)
     }
 }
 

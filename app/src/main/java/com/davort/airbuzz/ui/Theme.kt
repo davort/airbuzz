@@ -10,7 +10,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.compositeOver
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -27,19 +31,22 @@ import com.davort.airbuzz.rules.ThemeMode
 /** A named accent swatch for the Appearance screen. */
 data class Accent(val name: String, val color: Color)
 
-/** The approved swatches: five per mode, each keeping blank text at least 4.5:1 on its tint. */
+/**
+ * The approved swatches: five per mode, each keeping blank text at least 4.5:1 on its tint. The first is the default
+ * (Green and Lime, decision 44). Settings stores the index, so the default swapped places with Orange and Turquoise.
+ */
 val LightAccents = listOf(
-    Accent("Orange", Color(0xFFB5350E)),
-    Accent("Blue", Color(0xFF2B56CF)),
     Accent("Green", Color(0xFF176B41)),
+    Accent("Blue", Color(0xFF2B56CF)),
+    Accent("Orange", Color(0xFFB5350E)),
     Accent("Magenta", Color(0xFFB0215F)),
     Accent("Teal", Color(0xFF0A6A63)),
 )
 val DarkAccents = listOf(
-    Accent("Turquoise", Color(0xFF3FD9C9)),
+    Accent("Lime", Color(0xFFB9E15C)),
     Accent("Orange", Color(0xFFFF7A50)),
     Accent("Blue", Color(0xFF82AEFF)),
-    Accent("Lime", Color(0xFFB9E15C)),
+    Accent("Turquoise", Color(0xFF3FD9C9)),
     Accent("Pink", Color(0xFFFF85BD)),
 )
 
@@ -73,17 +80,33 @@ val LocalAirColors = staticCompositionLocalOf { airColors(false, LightAccents[0]
 
 val Pebble = Color(0xFF141414)
 
+/**
+ * Each grey takes a hint of the accent (decision 44): its OKLCH lightness stays, and it gains the accent's hue at a
+ * small chroma, [HINT] times the role's weight. White cards in light mode stay white, so they keep their lift.
+ */
+private const val HINT_LIGHT = 0.007f
+private const val HINT_DARK = 0.008f
+
+private fun Color.hint(accent: Color, chroma: Float): Color {
+    val a = accent.convert(ColorSpaces.Oklab)
+    val hue = atan2(a.blue, a.green)
+    val l = convert(ColorSpaces.Oklab).red
+    return Color(l, chroma * cos(hue), chroma * sin(hue), 1f, ColorSpaces.Oklab).convert(ColorSpaces.Srgb)
+}
+
 fun airColors(dark: Boolean, accent: Color): AirColors {
-    val surface = if (dark) Color(0xFF18191B) else Color.White
+    val k = if (dark) HINT_DARK else HINT_LIGHT
+    fun Color.h(weight: Float) = hint(accent, k * weight)
+    val surface = if (dark) Color(0xFF18191B).h(0.45f) else Color.White
     return if (dark) AirColors(
-        dark = true, bg = Color(0xFF0E0F10), surface = surface, ink = Color(0xFFECEDF0), heading = Color.White,
-        muted = Color(0xFF9A9DA3), line = Color(0xFF2A2B2E), outline = Color(0xFF595C61), selected = Color(0xFF313236),
-        context = Color(0xFF3D3F43), onInk = Color(0xFF0E0F10), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A), warnTint = Color(0xFF3F3221),
+        dark = true, bg = Color(0xFF0E0F10).h(1f), surface = surface, ink = Color(0xFFECEDF0).h(0.35f), heading = Color.White.h(0.2f),
+        muted = Color(0xFF9A9DA3).h(0.6f), line = Color(0xFF2A2B2E).h(0.9f), outline = Color(0xFF595C61).h(0.7f), selected = Color(0xFF313236).h(0.9f),
+        context = Color(0xFF3D3F43).h(0.8f), onInk = Color(0xFF0E0F10).h(1f), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A), warnTint = Color(0xFF3F3221),
         accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.24f).compositeOver(surface),
     ) else AirColors(
-        dark = false, bg = Color(0xFFF1F2F4), surface = surface, ink = Color(0xFF121418), heading = Color(0xFF05070A),
-        muted = Color(0xFF62666E), line = Color(0xFFDFE1E5), outline = Color(0xFFAFB3BA), selected = Color(0xFFE4E6EA),
-        context = Color(0xFFC6C9CF), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00), warnTint = Color(0xFFF6EEE0),
+        dark = false, bg = Color(0xFFF1F2F4).h(1f), surface = surface, ink = Color(0xFF121418).h(0.35f), heading = Color(0xFF05070A).h(0.2f),
+        muted = Color(0xFF62666E).h(0.6f), line = Color(0xFFDFE1E5).h(0.9f), outline = Color(0xFFAFB3BA).h(0.7f), selected = Color(0xFFE4E6EA).h(0.9f),
+        context = Color(0xFFC6C9CF).h(0.8f), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00), warnTint = Color(0xFFF6EEE0),
         accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
     )
 }
