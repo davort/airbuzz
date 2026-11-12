@@ -4,6 +4,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Release signing comes from the environment, so no key is ever in the repo. GitHub Actions sets AIRBUZZ_KEYSTORE (a
+// PKCS12 file), AIRBUZZ_KEYSTORE_PASSWORD (for the store and every entry) and AIRBUZZ_KEY_ALIAS: "airbuzz", the app
+// signing key, for the APK, or "upload", the Play upload key, for the bundle. Without them a release build is unsigned
+// and debug builds are signed with the machine's debug key, as before.
+val releaseKeystore: File? = System.getenv("AIRBUZZ_KEYSTORE")?.takeIf { it.isNotBlank() }?.let(::file)
+
+// The licence texts ship inside the app as assets under legal/, for the About screen: GPL-3.0's "Appropriate Legal
+// Notices" and Apache-2.0 section 4 (Golden Gate's NOTICE is in licenses/).
+val licenceAssets = layout.buildDirectory.dir("generated/licence-assets")
+val syncLicenceAssets by tasks.registering(Sync::class) {
+    from(rootProject.file("LICENSE"), rootProject.file("THIRD_PARTY_NOTICES.md"))
+    from(rootProject.file("licenses")) { into("licenses") }
+    into(licenceAssets.map { it.dir("legal") })
+}
+
 android {
     namespace = "com.davort.airbuzz"
     compileSdk = 36
@@ -15,9 +30,22 @@ android {
         versionName = "0.6.4"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
-    buildTypes {
-        release { isMinifyEnabled = false }
+    signingConfigs {
+        if (releaseKeystore != null) create("release") {
+            storeFile = releaseKeystore
+            storeType = "pkcs12"
+            storePassword = System.getenv("AIRBUZZ_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("AIRBUZZ_KEY_ALIAS") ?: "airbuzz"
+            keyPassword = storePassword
+        }
     }
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+    sourceSets["main"].assets.srcDir(licenceAssets)
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -25,6 +53,8 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
 }
+
+tasks.named("preBuild") { dependsOn(syncLicenceAssets) }
 
 dependencies {
     implementation(project(":goldengate"))
