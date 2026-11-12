@@ -101,6 +101,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.animation.ExitTransition
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
@@ -110,10 +112,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.key
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import android.os.Build
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 
 data class AppInfo(val pkg: String, val label: String)
 
@@ -365,9 +377,9 @@ fun IconAction(description: String, onClick: () -> Unit, icon: @Composable () ->
 const val UNDO_MS = 5000
 
 /**
- * People, each under a hairline and with a bin. The bin removes the person at once: their row slides out to the left
- * and a tinted Undo row takes its place, whose Undo button empties over five seconds; then the row folds away. Each
- * removal keeps its own five seconds, however many people are removed meanwhile.
+ * People, each under a hairline and with a bin. The bin, or a swipe to the left, removes the person at once: their row
+ * slides out to the left and a tinted Undo row takes its place, whose Undo button empties over five seconds; then the
+ * row folds away. Each removal keeps its own five seconds, however many people are removed meanwhile.
  */
 @Composable
 fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
@@ -375,14 +387,25 @@ fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
     // Removed people still showing Undo. They keep their place from the last order shown, so one folding away
     // doesn't move another; people added since come last, as they do in [people].
     val removed = remember { mutableStateListOf<Person>() }
+    // Removed by a swipe: the swipe already filled the row with the tint, so the Undo row only fades in over it.
+    val swiped = remember { HashSet<Person>() }
     val lastOrder = remember { ArrayList<Person>() }
     val shown = lastOrder.filter { it in people || it in removed } + people.filter { it !in lastOrder }
     lastOrder.clear(); lastOrder.addAll(shown)
-    shown.forEach { p ->
+    // An Undo row has no hairline above or below it. The row after one hides its hairline until the Undo row starts to
+    // fold away, and while a row is swiped both hairlines fade with the swipe, so none vanish at the swap.
+    val folding = remember { mutableStateListOf<Person>() }
+    val pull = remember { mutableStateMapOf<Person, Float>() }
+    val isGone = { q: Person -> q in removed && q !in people }
+    shown.forEachIndexed { i, p ->
         key(p) {
-            val gone = p in removed && p !in people
+            val gone = isGone(p)
+            val prev = shown.getOrNull(i - 1)
+            val line = prev == null || !isGone(prev) || prev in folding
             AnimatedContent(gone, label = "remove", transitionSpec = {
-                if (targetState) (slideInHorizontally(tween(260, easing = Motion.Out)) { it / 5 } + fadeIn(tween(200, 60, Motion.Out))) togetherWith
+                // The swiped row already looks like the Undo row's tint and bin, so it stays underneath while the name and Undo fade in.
+                if (targetState && p in swiped) fadeIn(tween(160, easing = Motion.Out)) togetherWith ExitTransition.KeepUntilTransitionsFinished
+                else if (targetState) (slideInHorizontally(tween(260, easing = Motion.Out)) { it / 5 } + fadeIn(tween(200, 60, Motion.Out))) togetherWith
                     (slideOutHorizontally(tween(220, easing = Motion.In)) { -it / 2 } + fadeOut(tween(160, easing = Motion.In)))
                 else (slideInHorizontally(tween(260, easing = Motion.Out)) { -it / 5 } + fadeIn(tween(200, 60, Motion.Out))) togetherWith
                     fadeOut(tween(120, easing = Motion.In))
@@ -390,40 +413,132 @@ fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
                 if (removing) UndoRow(p,
                     onUndo = {
                         val before = shown.takeWhile { it != p }.count { it in people }
-                        removed.remove(p)
+                        removed.remove(p); swiped.remove(p); pull.remove(p)
                         onChange(people.toMutableList().apply { add(before.coerceAtMost(size), p) })
                     },
-                    onGone = { removed.remove(p) })
-                else LineRow(first = false) {
+                    onFold = { folding.add(p); pull.remove(p) },
+                    onGone = { removed.remove(p); swiped.remove(p); folding.remove(p) })
+                else SwipeToRemove("Remove ${p.name}", line, { prev?.let { pull[it] } ?: 0f }, { pull[p] = it }, onRemove = { bySwipe ->
+                    if (bySwipe) swiped.add(p)
+                    removed.add(p)
+                    onChange(people - p)
+                }) {
                     Avatar(p.name)
                     TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
-                    IconAction("Remove ${p.name}", {
-                        removed.add(p)
-                        onChange(people - p)
-                    }) { CurveIcon(Curve.BIN, 20.dp, a.muted, 1.8f) }
                 }
             }
         }
     }
 }
 
-/** A removed person: a tinted row whose Undo button holds the time left as a fill that empties right to left. */
+/**
+ * A row under a hairline that ends in a bin and that a swipe to the left also removes. [line] false hides the hairline;
+ * it also fades as this row or the one above ([prevPull]) is swiped. The row reports its swipe to [onPull] from 0 to 1
+ * at the 40% mark. It is exactly as tall as the Undo row, and uncovers a strip in that row's tint and shape, and the strip's bin takes over from the row's, which fades. Past 40% of the width the bin
+ * turns accent and follows the row, with a tick; letting go there, or flinging left, slides the row away and calls
+ * [onRemove] with true. Anything less springs back. The row's bin calls it with false.
+ */
 @Composable
-private fun UndoRow(p: Person, onUndo: () -> Unit, onGone: () -> Unit) {
+private fun SwipeToRemove(
+    removeLabel: String, line: Boolean, prevPull: () -> Float, onPull: (Float) -> Unit, onRemove: (bySwipe: Boolean) -> Unit, content: @Composable RowScope.() -> Unit) {
+    val a = LocalAirColors.current
+    val view = LocalView.current
+    val density = LocalDensity.current
+    var dx by remember { mutableFloatStateOf(0f) }
+    var width by remember { mutableIntStateOf(0) }
+    var armed by remember { mutableStateOf(false) }
+    var leaving by remember { mutableStateOf(false) }
+    fun move(x: Float) {
+        dx = x
+        if (width > 0) onPull((-x / (width * 0.4f)).coerceIn(0f, 1f))
+    }
+    val follow by animateFloatAsState(if (armed) 1f else 0f, spring(stiffness = Spring.StiffnessMedium), label = "follow")
+    val binScale by animateFloatAsState(if (armed && !leaving) 1.15f else 1f, spring(0.5f, Spring.StiffnessMedium), label = "bin")
+    fun arm(on: Boolean) {
+        if (on == armed) return
+        armed = on
+        view.performHapticFeedback(when {
+            Build.VERSION.SDK_INT >= 34 -> if (on) HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE else HapticFeedbackConstants.GESTURE_THRESHOLD_DEACTIVATE
+            else -> if (on) HapticFeedbackConstants.CONTEXT_CLICK else HapticFeedbackConstants.CLOCK_TICK
+        })
+    }
+    Column(Modifier.fillMaxWidth()) {
+        val lineAlpha by animateFloatAsState(if (line) 1f else 0f, tween(160, easing = Motion.InOut), label = "line")
+        Box(Modifier.fillMaxWidth().heightIn(min = 1.dp, max = 1.dp).graphicsLayer {
+            val own = if (width > 0) (-dx / (width * 0.4f)).coerceIn(0f, 1f) else 0f
+            alpha = lineAlpha * (1 - own) * (1 - prevPull())
+        }.background(a.line))
+        Box(Modifier.fillMaxWidth().clipToBounds().onSizeChanged { width = it.width }) {
+            Box(Modifier.matchParentSize().drawBehind {
+                val shown = -dx
+                if (shown > 0f) {
+                    val inset = 4.dp.toPx()
+                    drawRoundRect(a.tintPressed, Offset(size.width - shown, inset), Size(shown, size.height - 2 * inset),
+                        CornerRadius(minOf(14.dp.toPx(), shown / 2)))
+                }
+            })
+            // The bin rests 36 dp from the right edge. Once armed it follows the row's edge 30 dp behind it, so a row swiped
+            // all the way leaves it where the Undo row's bin sits, in place of the person's initial.
+            Box(Modifier.align(Alignment.CenterStart).graphicsLayer {
+                val shown = -dx
+                val half = size.width / 2
+                val rest = width - 36.dp.toPx() - half
+                translationX = rest + (width - shown + 30.dp.toPx() - half - rest) * follow
+                alpha = (shown / 72.dp.toPx()).coerceIn(0f, 1f)
+                scaleX = binScale; scaleY = binScale
+            }) { CurveIcon(Curve.BIN, 20.dp, lerp(a.muted, a.accent, follow), 1.8f) }
+            Row(
+                Modifier.fillMaxWidth().offset { IntOffset(dx.roundToInt(), 0) }
+                    .draggable(rememberDraggableState { d ->
+                        move((dx + d).coerceIn(-width.toFloat(), 0f))
+                        arm(-dx > width * 0.4f)
+                    }, Orientation.Horizontal, onDragStopped = { v ->
+                        val fling = with(density) { 600.dp.toPx() }
+                        if (v < -fling || (armed && v < fling)) {
+                            arm(true); leaving = true
+                            animate(dx, -width.toFloat(), v, spring(1f, Spring.StiffnessMedium)) { x, _ -> move(x) }
+                            onRemove(true)
+                        } else {
+                            armed = false
+                            animate(dx, 0f, v, spring(0.8f, Spring.StiffnessMedium)) { x, _ -> move(x) }
+                        }
+                    })
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                content()
+                Box(Modifier.graphicsLayer { alpha = 1f - (-dx / 32.dp.toPx()).coerceIn(0f, 1f) }) {
+                    IconAction(removeLabel, { onRemove(false) }) { CurveIcon(Curve.BIN, 20.dp, a.muted, 1.8f) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A removed person: a tinted row with a bin where their initial was. The row holds the time left as a darker fill that
+ * empties right to left; the Undo button keeps the surface colour so it stands out against it.
+ */
+@Composable
+private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: () -> Unit) {
     val a = LocalAirColors.current
     val left = remember { Animatable(1f) }
     val visible = remember { MutableTransitionState(true) }
     LaunchedEffect(Unit) {
         left.animateTo(0f, tween(UNDO_MS, easing = LinearEasing))
+        onFold()
         visible.targetState = false
     }
     LaunchedEffect(visible.isIdle, visible.currentState) { if (visible.isIdle && !visible.currentState) onGone() }
     AnimatedVisibility(visible, enter = EnterTransition.None,
         exit = shrinkVertically(tween(240, easing = Motion.InOut)) + fadeOut(tween(160, easing = Motion.In))) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(a.tint)
-            .padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        // The same height as a person's row: an empty 1 dp where its hairline was, then 4 + 6 dp around the content where
+        // the row has 10 dp, so a swiped row turns into this one without moving.
+        Row(Modifier.fillMaxWidth().padding(top = 1.dp).padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(a.tint)
+            .drawBehind { drawRect(a.tintPressed, size = size.copy(width = size.width * left.value)) }
+            .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.alpha(0.5f)) { Avatar(p.name) }
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { CurveIcon(Curve.BIN, 20.dp, a.accent, 1.8f) }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(p.name, style = Type.bodyMedium, color = a.ink, maxLines = 1)
                 Label("Removed", color = a.accent)
@@ -432,10 +547,6 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onGone: () -> Unit) {
             Box(Modifier.height(40.dp).clip(shape).background(a.surface).border(1.dp, a.accent, shape)
                 .clickable(role = Role.Button, onClickLabel = "Undo removing ${p.name}", onClick = onUndo),
                 contentAlignment = Alignment.Center) {
-                // The time left, as a fill behind the word.
-                Box(Modifier.matchParentSize().drawBehind {
-                    drawRect(a.tintPressed, size = size.copy(width = size.width * left.value))
-                })
                 Text("Undo", style = Type.smallMedium, color = a.accent, modifier = Modifier.padding(horizontal = 18.dp))
             }
         }
