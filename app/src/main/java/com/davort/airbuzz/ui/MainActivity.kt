@@ -21,7 +21,6 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -32,15 +31,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -103,6 +93,13 @@ import java.util.Date
 
 enum class Screen { HOME, SETTINGS, APPEARANCE, TEST, ACTIVITY, SETUP }
 
+/** How deep a page sits below Home, which decides whether a move to it slides forward or back. */
+private val Screen.depth get() = when (this) {
+    Screen.HOME -> 0
+    Screen.SETTINGS, Screen.ACTIVITY -> 1
+    Screen.APPEARANCE, Screen.SETUP, Screen.TEST -> 2
+}
+
 enum class SheetKind { PEOPLE, APPS, PATTERN, QUIET, PAUSE }
 
 class MainActivity : ComponentActivity() {
@@ -145,9 +142,8 @@ fun rememberNow(everyMs: Long = 30_000): Long {
 @Composable
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
-    var from by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
-    val go: (Screen) -> Unit = { from = screen; screen = it }
+    val go: (Screen) -> Unit = { screen = it }
     BackHandler(screen != Screen.HOME) {
         go(if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME)
     }
@@ -157,29 +153,17 @@ fun App(engine: Engine, settings: AirSettings) {
             OnboardingScreen(engine, settings)
             return@Box
         }
-        // Expand (decision 40): the shelf grows into Settings and Back shrinks Settings into the shelf. [reveal] is 0 on
-        // Home and 1 on Settings; every other move is a cut.
-        // One linear timeline drives the panel and every layer of Settings, so the reveal reads as one motion.
-        val reveal = remember { Animatable(if (screen == Screen.SETTINGS) 1f else 0f) }
-        LaunchedEffect(screen) {
-            when {
-                screen == Screen.SETTINGS && from == Screen.HOME -> reveal.animateTo(1f, tween(Motion.EXPAND, easing = LinearEasing))
-                screen == Screen.HOME && from == Screen.SETTINGS -> reveal.animateTo(0f, tween(Motion.EXPAND_BACK, easing = LinearEasing))
-                else -> reveal.snapTo(if (screen == Screen.SETTINGS) 1f else 0f)
+        // A deeper page slides in from the right; going back slides it away (decision 40).
+        AnimatedContent(screen, label = "page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
+            when (shown) {
+                Screen.HOME -> Home(engine, settings, sheet, go, open)
+                Screen.SETTINGS -> SettingsScreen(engine, settings, go)
+                Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
+                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
+                Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
+                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
             }
         }
-        val t = reveal.value
-        val growing = (from == Screen.HOME && screen == Screen.SETTINGS && t < 1f) || (from == Screen.SETTINGS && screen == Screen.HOME && t > 0f)
-        // While it grows, Home stays underneath in the same slot, so it keeps its state.
-        when (if (growing) Screen.HOME else screen) {
-            Screen.HOME -> Home(engine, settings, sheet, go, open)
-            Screen.SETTINGS -> SettingsScreen(engine, settings, go)
-            Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
-            Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
-            Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
-            Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
-        }
-        if (growing) ExpandingSettings(t, ghost = { ShelfFor(engine, settings, go) }) { SettingsScreen(engine, settings, go, reveal = t) }
     }
     sheet?.let { kind ->
         val close = { sheet = null }
@@ -417,34 +401,6 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
         onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
     ) { go(Screen.SETTINGS) }
-}
-
-/**
- * Settings growing out of the shelf (Expand, decision 40), drawn over Home while the timeline [t] runs 0 → 1, and back
- * for Back. Over the first 65 % the card grows from the shelf's bounds to the whole screen and turns from the card
- * colour to the page colour, while the shelf's own content ([ghost]) fades out. Settings, laid out at full size so
- * nothing reflows or stretches, reveals its own layers on the same timeline. Home dims under it.
- */
-@Composable
-fun ExpandingSettings(t: Float, ghost: @Composable BoxScope.() -> Unit, content: @Composable () -> Unit) {
-    val a = LocalAirColors.current
-    val p = Motion.Emph.transform((t / 0.65f).coerceIn(0f, 1f))
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (a.dark) 0.45f else 0.25f) * p)))
-    Box(Modifier.fillMaxSize().graphicsLayer { shape = GrowShape(p); clip = true }.background(lerp(a.surface, a.bg, p))) {
-        val gone = (1f - p / 0.25f).coerceIn(0f, 1f)
-        if (gone > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = gone }) { ghost() }
-        content()
-    }
-}
-
-/** The shelf's rounded box (12 dp sides, 16 dp from the bottom, 68 dp tall, 24 dp corners) at 0, the whole screen at 1. */
-private class GrowShape(val p: Float) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline = with(density) {
-        fun mix(from: Float, to: Float) = from + (to - from) * p
-        val bottom = size.height - 16.dp.toPx()
-        Outline.Rounded(RoundRect(mix(12.dp.toPx(), 0f), mix(bottom - 68.dp.toPx(), 0f), mix(size.width - 12.dp.toPx(), size.width),
-            mix(bottom, size.height), CornerRadius(mix(24.dp.toPx(), 0f))))
-    }
 }
 
 /**

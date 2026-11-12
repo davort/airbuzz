@@ -1,9 +1,14 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 
 /**
  * Motion from the motion study (brief decision 40). Compose stretches every duration by Android's animator duration
@@ -16,24 +21,27 @@ object Motion {
     val InOut = CubicBezierEasing(0.65f, 0f, 0.35f, 1f)
     /** Leaving: a quiet, quick start. */
     val In = CubicBezierEasing(0.4f, 0f, 1f, 1f)
-    /** Material's emphasized curve, for the shelf growing into Settings. */
+    /** Material's emphasized curve: a quick start with a long, soft landing, for pages sliding in. */
     val Emph = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    /**
-     * The shelf opening Settings is one linear timeline of this length: the panel grows over its first 65 %, and the
-     * layers of Settings rise in staggered over it (see [parallax]). Back plays the same timeline in reverse, faster.
-     */
-    const val EXPAND = 460
-    const val EXPAND_BACK = 300
+    /** Going to a deeper page, and coming back from it (see [pageChange]). */
+    const val PAGE = 360
+    const val PAGE_BACK = 300
 }
 
 /**
- * One layer of Settings in the shelf's reveal (decision 40). [t] is the shared timeline, 0 → 1. Layer 0 is the lowest on
- * screen and starts first, near the shelf; each layer above starts 6 % later and travels 8 dp further, so the scene
- * opens upward like parallax and the title, the top layer, rises 72 dp out from behind the Strength card.
+ * Every move between pages (decision 40), measured from Linear's app. The page you go to starts 40 % of the width to
+ * the right and is already fading in, so you see only the end of its slide; the page you leave drifts 15 % the other
+ * way and is gone sooner. The two moving apart at different speeds gives the sense of depth. Back mirrors it, a
+ * little faster.
  */
-fun Modifier.parallax(t: Float, layer: Int): Modifier = graphicsLayer {
-    val k = Motion.Out.transform(((t - 0.1f - layer * 0.06f) / 0.4f).coerceIn(0f, 1f))
-    alpha = k
-    translationY = (1f - k) * (24 + layer * 8).dp.toPx()
+fun pageChange(forward: Boolean): ContentTransform {
+    val slide = tween<IntOffset>(if (forward) Motion.PAGE else Motion.PAGE_BACK, easing = Motion.Emph)
+    val front = 0.4f
+    val behind = -0.15f
+    return ContentTransform(
+        slideInHorizontally(slide) { (it * if (forward) front else behind).roundToInt() } + fadeIn(tween(150, easing = Motion.Out)),
+        slideOutHorizontally(slide) { (it * if (forward) behind else front).roundToInt() } + fadeOut(tween(if (forward) 180 else 120, easing = Motion.Out)),
+        sizeTransform = null,
+    )
 }

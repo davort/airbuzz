@@ -70,16 +70,14 @@ import java.util.Locale
 import kotlin.math.sin
 
 @Composable
-/** [reveal] is the shelf's opening timeline (decision 40); each block of the page is one [parallax] layer of it. */
-fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, reveal: Float = 1f) {
+fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
     val a = LocalAirColors.current
     val context = LocalContext.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     Page {
-        // The bar comes first, so the Strength card draws over it and the title rises out from behind the card.
-        Box(Modifier.parallax(reveal, 6)) { ScreenBar("Settings", onBack = { go(Screen.HOME) }) }
-        Card(Modifier.parallax(reveal, 5)) {
+        ScreenBar("Settings", onBack = { go(Screen.HOME) })
+        Card {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
             Text("Strong uses more battery and also sets your Air's alarm strength.", style = Type.small, color = a.muted)
@@ -95,7 +93,7 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, reveal: Fl
                 }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
-        }), Modifier.parallax(reveal, 4))
+        }))
         Group(listOf(
             { GroupRow({ go(Screen.ACTIVITY) }) {
                 TwoLine("Activity", Modifier.weight(1f)) { Label("This week's calls and messages") }
@@ -113,7 +111,7 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, reveal: Fl
                 TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
-        ), Modifier.parallax(reveal, 3))
+        ))
         Spacer(Modifier.weight(1f))
         Group(listOf({
             GroupRow {
@@ -122,11 +120,11 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit, reveal: Fl
                 }
                 Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
             }
-        }), Modifier.parallax(reveal, 2))
+        }))
         Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
-            style = Type.small, color = a.muted, modifier = Modifier.parallax(reveal, 1))
+            style = Type.small, color = a.muted)
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-        Label("AirBuzz $version · GNU GPL v3", Modifier.parallax(reveal, 0))
+        Label("AirBuzz $version · GNU GPL v3")
     }
 }
 
