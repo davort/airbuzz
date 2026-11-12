@@ -193,7 +193,7 @@ val Licences = listOf(
 
 private fun openWeb(context: Context, url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 
-/** About (Paper lane 05): the app, its licence, the source, the privacy policy and the licences it ships. */
+/** About (Paper lane 05): the app, its licence, the source, the privacy policy, the terms and the licences it ships. */
 @Composable
 fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
     val a = LocalAirColors.current
@@ -222,6 +222,10 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
             } },
             { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz/blob/main/PRIVACY.md") }) {
                 TwoLine("Privacy policy", Modifier.weight(1f)) { Label("Kept on your phone") }
+                GlyphIcon(Glyph.OUT, 22.dp, a.muted)
+            } },
+            { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz/blob/main/TERMS.md") }) {
+                TwoLine("Terms of use", Modifier.weight(1f)) { Label("Free and provided as is") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
             { GroupRow({ go(Screen.LICENCES) }) {
