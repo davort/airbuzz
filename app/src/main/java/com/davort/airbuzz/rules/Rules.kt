@@ -32,6 +32,11 @@ data class Settings(
     val darkAccent: Int = 0,
     /** False until onboarding is finished (decision 39). */
     val onboarded: Boolean = false,
+    /** Whether [ringAnywayPeople] ring through quiet times and a pause. Starts off, with nobody in the list. */
+    val ringAnyway: Boolean = false,
+    val ringAnywayPeople: List<Person> = emptyList(),
+    /** Numbers, or names when there is no number, dismissed from "Called recently". */
+    val hiddenCallers: Set<String> = emptySet(),
 )
 
 /** Who is calling, as far as the call notification says. */
@@ -96,12 +101,15 @@ object Rules {
     fun inWindow(minute: Int, start: Int, end: Int): Boolean =
         if (start == end) false else if (start < end) minute in start until end else minute >= start || minute < end
 
-    /** Chosen people ring through a pause and the don't-buzz rules (decisions 6 and 8). */
+    /**
+     * Who may ring comes from the call mode; quiet times and a pause then silence everyone except the ring-anyway
+     * people, while ring anyway is on, in every mode. Off silences everyone.
+     */
     fun decideCall(caller: Caller, s: Settings, m: Moment, region: String): Outcome {
         if (!s.enabled) return Outcome.Skip("AirBuzz is off")
-        if (s.people.any { matches(it, caller, region) }) return Outcome.Buzz
+        if (s.ringAnyway && s.ringAnywayPeople.any { matches(it, caller, region) }) return Outcome.Buzz
         val allowed = when (s.callMode) {
-            CallMode.CHOSEN -> false
+            CallMode.CHOSEN -> s.people.any { matches(it, caller, region) }
             CallMode.CONTACTS -> caller.isContact
             CallMode.ANYONE -> true
         }

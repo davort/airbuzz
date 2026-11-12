@@ -30,7 +30,7 @@ class SettingsStore(context: Context) {
     private fun encode(s: Settings) = JSONObject().apply {
         put("enabled", s.enabled)
         put("callMode", s.callMode.name)
-        put("people", JSONArray(s.people.map { JSONObject().put("name", it.name).put("number", it.number ?: JSONObject.NULL) }))
+        put("people", encodePeople(s.people))
         put("apps", JSONArray(s.apps.toList()))
         put("messageTaps", s.messageTaps)
         put("strong", s.strong)
@@ -44,16 +44,24 @@ class SettingsStore(context: Context) {
         put("lightAccent", s.lightAccent)
         put("darkAccent", s.darkAccent)
         put("onboarded", s.onboarded)
+        put("ringAnyway", s.ringAnyway)
+        put("ringAnywayPeople", encodePeople(s.ringAnywayPeople))
+        put("hiddenCallers", JSONArray(s.hiddenCallers.toList()))
+    }
+
+    private fun encodePeople(people: List<Person>) =
+        JSONArray(people.map { JSONObject().put("name", it.name).put("number", it.number ?: JSONObject.NULL) })
+
+    private fun decodePeople(a: JSONArray?): List<Person>? = a?.let {
+        (0 until a.length()).map { i ->
+            val p = a.getJSONObject(i)
+            Person(p.getString("name"), if (p.isNull("number")) null else p.getString("number"))
+        }
     }
 
     private fun decode(o: JSONObject): Settings {
         val d = Settings()
-        val people = o.optJSONArray("people")?.let { a ->
-            (0 until a.length()).map { i ->
-                val p = a.getJSONObject(i)
-                Person(p.getString("name"), if (p.isNull("number")) null else p.getString("number"))
-            }
-        } ?: d.people
+        val people = decodePeople(o.optJSONArray("people")) ?: d.people
         val apps = o.optJSONArray("apps")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: d.apps
         return Settings(
             enabled = o.optBoolean("enabled", d.enabled),
@@ -73,6 +81,9 @@ class SettingsStore(context: Context) {
             darkAccent = o.optInt("darkAccent", d.darkAccent),
             // Settings saved before 0.4 belong to someone who already set AirBuzz up.
             onboarded = o.optBoolean("onboarded", true),
+            ringAnyway = o.optBoolean("ringAnyway", d.ringAnyway),
+            ringAnywayPeople = decodePeople(o.optJSONArray("ringAnywayPeople")) ?: d.ringAnywayPeople,
+            hiddenCallers = o.optJSONArray("hiddenCallers")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: d.hiddenCallers,
         )
     }
 }

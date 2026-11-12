@@ -30,11 +30,30 @@ class RulesTest {
         assertFalse(Rules.matches(mum, Caller("Mummy", null), "SE"))
     }
 
-    @Test fun chosenPeopleRingThroughQuietHoursButOthersDoNot() {
+    @Test fun quietHoursSilenceChosenPeopleToo() {
+        assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Mum", null), on, day, "SE"))
+        assertEquals(Outcome.Skip("quiet hours"), Rules.decideCall(Caller("Mum", null), on, night, "SE"))
         val anyone = on.copy(callMode = CallMode.ANYONE)
-        assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Mum", null), anyone, night, "SE"))
         assertEquals(Outcome.Skip("quiet hours"), Rules.decideCall(Caller("Bob", null), anyone, night, "SE"))
         assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Bob", null), anyone, day, "SE"))
+    }
+
+    @Test fun ringAnywayPeopleRingThroughQuietTimesAndPauseOnlyWhileOn() {
+        // Mum calls by number; Bob is chosen but not in the ring-anyway list.
+        val mumCalls = Caller(null, "+46 70 123 45 67")
+        val bob = Person("Bob", null)
+        val anyway = on.copy(people = listOf(mum, bob), ringAnyway = true, ringAnywayPeople = listOf(mum))
+        assertEquals(Outcome.Buzz, Rules.decideCall(mumCalls, anyway, night, "SE"))
+        assertEquals(Outcome.Skip("quiet hours"), Rules.decideCall(Caller("Bob", null), anyway, night, "SE"))
+        assertEquals(Outcome.Skip("quiet hours"), Rules.decideCall(mumCalls, anyway.copy(ringAnyway = false), night, "SE"))
+        val paused = anyway.copy(pausedUntil = Long.MAX_VALUE)
+        assertEquals(Outcome.Buzz, Rules.decideCall(mumCalls, paused, day, "SE"))
+        assertEquals(Outcome.Skip("paused"), Rules.decideCall(Caller("Bob", null), paused, day, "SE"))
+        assertEquals(Outcome.Skip("AirBuzz is off"), Rules.decideCall(mumCalls, anyway.copy(enabled = false), night, "SE"))
+        // Ring anyway works in every call mode, even for someone the mode alone wouldn't let ring.
+        val chosenElsewhere = anyway.copy(people = emptyList(), callMode = CallMode.CONTACTS)
+        assertEquals(Outcome.Buzz, Rules.decideCall(mumCalls, chosenElsewhere, night, "SE"))
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideCall(mumCalls, anyway.copy(people = emptyList(), ringAnyway = false), day, "SE"))
     }
 
     @Test fun chosenModeSkipsEveryoneElse() {
@@ -44,10 +63,10 @@ class RulesTest {
         assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Bob", null), on.copy(callMode = CallMode.CONTACTS), day, "SE"))
     }
 
-    @Test fun pauseStopsMessagesButNotChosenCallers() {
+    @Test fun pauseStopsMessagesAndChosenCallers() {
         val paused = on.copy(pausedUntil = Long.MAX_VALUE)
         assertEquals(Outcome.Skip("paused"), Rules.decideMessage("com.whatsapp", paused, day, null))
-        assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Mum", null), paused, day, "SE"))
+        assertEquals(Outcome.Skip("paused"), Rules.decideCall(Caller("Mum", null), paused, day, "SE"))
     }
 
     @Test fun messagesMergeWithin15Seconds() {
