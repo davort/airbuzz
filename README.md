@@ -70,6 +70,8 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # Android SDK with NDK 27.2.12
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Releases: push a tag `v<versionName>`, such as `v0.7.0`. GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds an APK signed with the app signing key and a Play bundle signed with the upload key, and puts the APK, its SHA-256 and the signing certificate's SHA-256 on a draft GitHub Release. The keys come from the `AIRBUZZ_KEYSTORE_B64` and `AIRBUZZ_KEYSTORE_PASSWORD` secrets; without them, `app/build.gradle.kts` builds exactly as before.
+
 ## Licence
 
 GPL-3.0. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.

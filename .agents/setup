@@ -92,7 +92,8 @@ echo "sdk.dir=$android_home" > local.properties
 step "Shared debug signing key"
 # Debug APKs are signed with the debug key from Davor's Mac, kept in the private research repo and not in this
 # public one, so an APK built here installs over one built there. Without it the orb signs with its own key and the
-# phone refuses the update (INSTALL_FAILED_UPDATE_INCOMPATIBLE).
+# phone refuses the update (INSTALL_FAILED_UPDATE_INCOMPATIBLE). Optional: anyone without access to that repo, as once
+# this one is public, keeps the orb's own key and the build works the same.
 key_tmp="$(mktemp)"
 if gh api -H 'Accept: application/vnd.github.raw' repos/davort/airbuzz-research/contents/signing/debug.keystore >"$key_tmp" 2>/dev/null; then
   mkdir -p "$HOME/.android"

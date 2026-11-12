@@ -1,0 +1,111 @@
+# Builds a release when a version tag such as v0.7.0 is pushed: the unit tests, an APK signed with the app signing key
+# ("airbuzz") for GitHub, and a bundle signed with the Play upload key ("upload") for Google Play. The APK, its SHA-256
+# and the signing certificate's SHA-256 go on a draft GitHub Release; the bundle is kept as a workflow artifact.
+#
+# Secrets: AIRBUZZ_KEYSTORE_B64 (a base64 PKCS12 keystore with the entries "airbuzz" and "upload") and
+# AIRBUZZ_KEYSTORE_PASSWORD (for the store and both entries).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      AIRBUZZ_KEYSTORE_PASSWORD: ${{ secrets.AIRBUZZ_KEYSTORE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Golden Gate submodules
+        run: |
+          git submodule update --init third_party/golden-gate
+          git -C third_party/golden-gate submodule update --init external/lwip external/mbedtls
+
+      - name: The tag matches versionName
+        run: |
+          version="$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts)"
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match versionName $version in app/build.gradle.kts"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Keep in step with app/ and goldengate/ (compileSdk, ndkVersion, cmake version) and .agents/setup.
+      - name: Android SDK packages
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          { yes || true; } | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" | grep -v '^\[=' || true
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.AIRBUZZ_KEYSTORE_B64 }}
+        run: |
+          if [[ -z "$KEYSTORE_B64" || -z "$AIRBUZZ_KEYSTORE_PASSWORD" ]]; then
+            echo "::error::Add the AIRBUZZ_KEYSTORE_B64 and AIRBUZZ_KEYSTORE_PASSWORD secrets to the repository"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/airbuzz.p12"
+          echo "AIRBUZZ_KEYSTORE=$RUNNER_TEMP/airbuzz.p12" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: APK signed with the app signing key
+        run: AIRBUZZ_KEY_ALIAS=airbuzz ./gradlew :app:assembleRelease
+
+      - name: Bundle signed with the upload key
+        run: AIRBUZZ_KEY_ALIAS=upload ./gradlew :app:bundleRelease
+
+      - name: Release files
+        run: |
+          mkdir -p out
+          apk="out/AirBuzz-$VERSION.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          cp app/build/outputs/bundle/release/app-release.aab "out/AirBuzz-$VERSION.aab"
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$apksigner" verify "$apk"
+          cert="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          [[ -n "$cert" ]] || { echo "::error::The APK has no signing certificate"; exit 1; }
+          (cd out && sha256sum "AirBuzz-$VERSION.apk" > "AirBuzz-$VERSION.apk.sha256")
+          echo "$cert" | sed 's/../&:/g; s/:$//' | tr a-f A-F > "out/AirBuzz-signing-certificate.sha256"
+          echo "APK_SHA256=$(cut -d' ' -f1 "out/AirBuzz-$VERSION.apk.sha256")" >> "$GITHUB_ENV"
+          echo "CERT_SHA256=$(cat out/AirBuzz-signing-certificate.sha256)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AirBuzz-${{ env.VERSION }}-play-bundle
+          path: out/AirBuzz-${{ env.VERSION }}.aab
+          retention-days: 90
+
+      - name: Draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "AirBuzz $VERSION" --notes "$(cat <<EOF
+          APK SHA-256: \`$APK_SHA256\`
+
+          Signing certificate SHA-256: \`$CERT_SHA256\`
+          EOF
+          )" "out/AirBuzz-$VERSION.apk" "out/AirBuzz-$VERSION.apk.sha256" out/AirBuzz-signing-certificate.sha256
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/airbuzz.p12"
