@@ -25,9 +25,15 @@ android {
     defaultConfig {
         applicationId = "com.davort.airbuzz"
         minSdk = 28
+<<<<<<< Updated upstream
         targetSdk = 36
         versionCode = 26
         versionName = "0.6.4"
+=======
+        targetSdk = 35
+        versionCode = 27
+        versionName = "0.6.5"
+>>>>>>> Stashed changes
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     signingConfigs {

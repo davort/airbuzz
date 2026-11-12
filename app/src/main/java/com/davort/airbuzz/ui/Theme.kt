@@ -106,7 +106,7 @@ fun airColors(dark: Boolean, accent: Color): AirColors {
     ) else AirColors(
         dark = false, bg = Color(0xFFF1F2F4).h(1f), surface = surface, ink = Color(0xFF121418).h(0.35f), heading = Color(0xFF05070A).h(0.2f),
         muted = Color(0xFF62666E).h(0.6f), line = Color(0xFFDFE1E5).h(0.9f), outline = Color(0xFFAFB3BA).h(0.7f), selected = Color(0xFFE4E6EA).h(0.9f),
-        context = Color(0xFFC6C9CF).h(0.8f), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFB86E00), warnTint = Color(0xFFF6EEE0),
+        context = Color(0xFFC6C9CF).h(0.8f), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFA35E00), warnTint = Color(0xFFF6EEE0),
         accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
     )
 }

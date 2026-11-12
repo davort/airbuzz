@@ -426,9 +426,15 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     val fixer = rememberFixer(go) {}
     val paused = s.enabled && s.pausedUntil > now
     val live = s.enabled && !paused && reached != null
+    // Once the problem has cost an alert, the detail says how many (issue #3); the day joins the time after midnight.
+    val missed = band.problemSince?.takeIf { band.missed > 0 }?.let { since ->
+        val day = if (since < dayStart(now = now)) java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(Date(since)) + " " else ""
+        "${band.missed} missed since $day${timeOf(since)}"
+    }
     AirShelf(
         problem.takeIf { s.enabled }, live,
         if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
+        missed,
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
         onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
     ) { go(Screen.SETTINGS) }
@@ -441,7 +447,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
  * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40).
  */
 @Composable
-fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
+fun AirShelf(problem: Problem?, live: Boolean, reached: String, missed: String? = null, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(24.dp)
     val swap = tween<Color>(220, easing = Motion.Out)
@@ -494,7 +500,8 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, modifier: Modifi
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(shown?.title ?: "Your Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
-                    if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (shown != null && missed != null) Label(missed, color = a.warn)
+                    else if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else Label(reached)
                 }
                 if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)

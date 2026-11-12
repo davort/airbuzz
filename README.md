@@ -32,6 +32,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.6.2** (versionCode 24): the greys take a hint of the chosen accent, so each accent feels like its own theme while the background still reads as grey; white cards stay white in light mode (brief decision 44). Green (light) and Lime (dark) are the new defaults and come first in Appearance; they swapped places with Orange and Turquoise, so anyone who had picked one of those now sees the other.
 - **0.6.3** (versionCode 25): new app icon, the Air's pebble with two Lime tap rings on near-black, with a matching themed (monochrome) icon and notification icon (brief decision 45). The 512 px Play Store icon is `store/play-icon-512.png`.
 - **0.6.4** (versionCode 26): Settings has a Missed alerts row under Appearance. It shows how that notification arrives (Pop-up with sound, Sound, Silent or Off) and opens Android's page for it (issue #2).
+- **0.6.5** (versionCode 27): once a problem has cost an alert, the Air shelf's second line says how many, such as "1 missed since 13:58", in the warning colour (issue #3). The light warning colour is a little darker (#A35E00), so its text keeps 4.5:1 on white; `ThemeTest` now checks it.
 
 ## What it does
 
