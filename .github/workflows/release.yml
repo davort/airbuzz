@@ -23,7 +23,7 @@ jobs:
     env:
       AIRBUZZ_KEYSTORE_PASSWORD: ${{ secrets.AIRBUZZ_KEYSTORE_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Golden Gate submodules
         run: |
@@ -39,12 +39,14 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      # v5, not v6: v6's caching is a proprietary Gradle component under its own terms of use, and a release build
+      # every few days gains little from a cache.
+      - uses: gradle/actions/setup-gradle@v5
 
       # Keep in step with app/ and goldengate/ (compileSdk, ndkVersion, cmake version) and .agents/setup.
       - name: Android SDK packages
@@ -89,7 +91,7 @@ jobs:
           echo "APK_SHA256=$(cut -d' ' -f1 "out/AirBuzz-$VERSION.apk.sha256")" >> "$GITHUB_ENV"
           echo "CERT_SHA256=$(cat out/AirBuzz-signing-certificate.sha256)" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: AirBuzz-${{ env.VERSION }}-play-bundle
           path: out/AirBuzz-${{ env.VERSION }}.aab
