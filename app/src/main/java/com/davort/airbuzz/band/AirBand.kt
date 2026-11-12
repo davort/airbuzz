@@ -176,7 +176,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var stopRequested = false
     private var strength = 0
     private val phases = LinkedHashMap<String, Long>()
-    private val connectTimeout = Runnable { fail("Couldn't reach your Air within ${CONNECT_TIMEOUT_MS / 1000} s.") }
+    private val connectTimeout = Runnable { fail("Couldn't reach your Fitbit Air within ${CONNECT_TIMEOUT_MS / 1000} s.") }
 
     val busy: Boolean get() = onDone != null
 
@@ -232,7 +232,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     fun stopRing() {
         if (!busy) return
         stopRequested = true
-        if (!sessionStarted) succeed("Stopped before the Air was reached.")
+        if (!sessionStarted) succeed("Stopped before the Fitbit Air was reached.")
     }
 
     /**
@@ -316,9 +316,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             }
             // A dead link cannot carry the hand-off, so skip it by clearing sessionStarted.
             when {
-                status != BluetoothGatt.GATT_SUCCESS -> { sessionStarted = false; fail("Couldn't connect to your Air (status $status).") }
+                status != BluetoothGatt.GATT_SUCCESS -> { sessionStarted = false; fail("Couldn't connect to your Fitbit Air (status $status).") }
                 newState == BluetoothProfile.STATE_CONNECTED -> { mark("connected"); g.discoverServices() }
-                newState == BluetoothProfile.STATE_DISCONNECTED -> { sessionStarted = false; fail("Your Air disconnected.") }
+                newState == BluetoothProfile.STATE_DISCONNECTED -> { sessionStarted = false; fail("Your Fitbit Air disconnected.") }
             }
         }
 
@@ -327,7 +327,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             val service = g.getService(TRACKER)
             val tx = service?.getCharacteristic(TX)
             val rx = service?.getCharacteristic(RX)
-            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Air's tracker channel is missing.")
+            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Fitbit Air's tracker channel is missing.")
             txCharacteristic = tx
             rxCharacteristic = rx
             if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel.")
@@ -523,7 +523,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             handshakeDeadline = null
             if (sessionStarted) return@Runnable
             if (handshakeAttempts >= MAX_HANDSHAKE_ATTEMPTS) {
-                fail("Google Health is using your Air. Try again in a moment.")
+                fail("Google Health is using your Fitbit Air. Try again in a moment.")
             } else {
                 disposeSession()
                 startSession()
@@ -536,7 +536,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Drops the failed handshake and starts a fresh stack after [delayMs]. */
     private fun retryHandshake(reason: String, delayMs: Long) {
         mark("handshake $handshakeAttempts failed")
-        if (handshakeAttempts >= MAX_HANDSHAKE_ATTEMPTS) return fail("Google Health is using your Air ($reason).")
+        if (handshakeAttempts >= MAX_HANDSHAKE_ATTEMPTS) return fail("Google Health is using your Fitbit Air ($reason).")
         log("Handshake $handshakeAttempts failed: $reason. Retrying in $delayMs ms")
         disposeSession()
         handshakeDeadline?.let(main::removeCallbacks)
@@ -625,7 +625,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private fun post(ep: CoapEndpoint, body: ByteArray): Single<Unit> =
         send(ep, Method.POST, body, maxResend = 0).map { response ->
             if (response.responseCode.responseClass.toInt() != 2) {
-                throw IllegalStateException("Your Air rejected the write (${response.responseCode}).")
+                throw IllegalStateException("Your Fitbit Air rejected the write (${response.responseCode}).")
             }
         }
 

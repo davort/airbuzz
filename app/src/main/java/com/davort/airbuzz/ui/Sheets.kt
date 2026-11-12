@@ -264,16 +264,16 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
     val pick = rememberContactPicker(engine)
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    Sheet("Who can ring your Air", onClose) {
+    Sheet("Who can ring your Fitbit\u00A0Air", onClose) {
         Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
             engine.store.update { it.copy(callMode = m) }
         }
         ScrollUnderFade {
             // Only Chosen has a list; Contacts and Anyone say who rings in one sentence, with room around it.
             when (s.callMode) {
-                CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Air.", roomy = false)
-                CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Air. Numbers you haven't saved stay on your phone.", roomy = true)
-                CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Air, including numbers you haven't saved.", roomy = true)
+                CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Fitbit Air.", roomy = false)
+                CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Fitbit Air. Numbers you haven't saved stay on your phone.", roomy = true)
+                CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Fitbit Air, including numbers you haven't saved.", roomy = true)
             }
             if (s.callMode == CallMode.CHOSEN) {
                 Column {

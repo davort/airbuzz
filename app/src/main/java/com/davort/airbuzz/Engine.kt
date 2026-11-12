@@ -153,7 +153,7 @@ class Engine(private val app: Context) {
         val what: String? = null,
         /** Elapsed realtime when the alert reached AirBuzz. */
         val alertAt: Long = 0L,
-        /** The problem notification's title if this alert never reaches the Air, such as "Mum called · your Air didn't ring". */
+        /** The problem notification's title if this alert never reaches the Air, such as "Mum called · your Fitbit Air didn't ring". */
         val missTitle: String? = null,
         /** A message's notification key, so dismissing the notification drops the buzz it would still retry. */
         val alertKey: String? = null,
@@ -230,13 +230,13 @@ class Engine(private val app: Context) {
                 var latency: Long? = null
                 // A ring goes ahead of queued message taps.
                 queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS, what = "call",
-                    alertAt = start, missTitle = "$who called · your Air didn't ring",
+                    alertAt = start, missTitle = "$who called · your Fitbit Air didn't ring",
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     Notifications.cancelRinging(app)
                     bandState.value = bandState.value.copy(ringingWho = null)
                     log.updateLast({ it.time == entry.time && it.kind == Kind.CALL }) {
                         if (r.taps > 0) it.copy(rangMs = SystemClock.elapsedRealtime() - start, latencyMs = latency)
-                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "answered before the Air was reached")
+                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "answered before the Fitbit Air was reached")
                         else it.copy(result = Result.FAILED, reason = r.message)
                     }
                 })
@@ -253,7 +253,7 @@ class Engine(private val app: Context) {
         waiting.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
     }
 
-    /** Silence from the "Ringing your Air" notification. */
+    /** Silence from the "Ringing your Fitbit Air" notification. */
     fun silence() {
         note("Silence pressed")
         running?.takeIf { it.ringKey != null }?.let { band.stopRing() }
@@ -282,11 +282,11 @@ class Engine(private val app: Context) {
                 var latency: Long? = null
                 queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength), giveUpAt = start + MESSAGE_RETRY_FOR_MS,
                     what = "$appLabel message", alertAt = start,
-                    missTitle = "${if (who != null) "$who on $appLabel" else "$appLabel message"} · your Air didn't buzz", alertKey = key,
+                    missTitle = "${if (who != null) "$who on $appLabel" else "$appLabel message"} · your Fitbit Air didn't buzz", alertKey = key,
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     log.updateLast({ it.time == entry.time && it.pkg == pkg }) {
                         if (r.taps > 0) it.copy(latencyMs = latency)
-                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "seen on the phone before the Air was reached")
+                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "seen on the phone before the Fitbit Air was reached")
                         else it.copy(result = Result.FAILED, reason = r.message)
                     }
                 })
@@ -370,9 +370,9 @@ class Engine(private val app: Context) {
         }
     }
 
-    private fun cancelled() = BandResult(true, "Stopped before the Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
+    private fun cancelled() = BandResult(true, "Stopped before the Fitbit Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
 
-    private fun seen() = BandResult(true, "Seen on the phone before the Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
+    private fun seen() = BandResult(true, "Seen on the phone before the Fitbit Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
 
     /** The user dismissed message notification [key], so its buzz isn't wanted any more if it is still waiting. */
     fun onMessageDismissed(key: String) = dropSeen("Message dismissed") { it.alertKey == key }
@@ -399,8 +399,8 @@ class Engine(private val app: Context) {
         BLUETOOTH_OFF("Bluetooth is off", "Turn on"),
         NEARBY("AirBuzz isn't allowed to use Nearby devices", "Allow"),
         NO_AIR("No Fitbit Air is paired with this phone", null),
-        GOOGLE_HEALTH("Google Health kept your Air busy", null),
-        OUT_OF_REACH("Your Air was out of reach", null),
+        GOOGLE_HEALTH("Google Health kept your Fitbit Air busy", null),
+        OUT_OF_REACH("Your Fitbit Air was out of reach", null),
     }
 
     private class ProblemNote(val since: Long, var cause: Cause, var missed: Int = 0, var title: String? = null)
@@ -459,9 +459,9 @@ class Engine(private val app: Context) {
         val openApp = Intent(app, MainActivity::class.java)
         if (p.missed == 0) {
             note("Notification: Bluetooth is off")
-            Notifications.showProblem(app, loud = false, "Bluetooth is off", "Your Air won't buzz until it's back on", "Turn on", bluetooth)
+            Notifications.showProblem(app, loud = false, "Bluetooth is off", "Your Fitbit Air won't buzz until it's back on", "Turn on", bluetooth)
         } else {
-            val title = if (p.missed == 1) p.title ?: "An alert didn't reach your Air" else "${p.missed} alerts didn't reach your Air"
+            val title = if (p.missed == 1) p.title ?: "An alert didn't reach your Fitbit Air" else "${p.missed} alerts didn't reach your Fitbit Air"
             note("Notification: ${p.missed} missed (${p.cause.text})")
             Notifications.showProblem(app, loud = true, title, p.cause.text, p.cause.fixLabel,
                 if (p.cause == Cause.BLUETOOTH_OFF) bluetooth else openApp)

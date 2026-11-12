@@ -1,6 +1,8 @@
 package com.davort.airbuzz.ui
 
 import android.app.NotificationManager
+import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
@@ -10,6 +12,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.res.painterResource
+import com.davort.airbuzz.R
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -77,12 +84,14 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
     val context = LocalContext.current
     val band by engine.state.collectAsStateWithLifecycle()
     val entries by engine.log.entries.collectAsStateWithLifecycle()
+    val version = remember { appVersion(context) }
+    val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     Page {
         ScreenBar("Settings", onBack = { go(Screen.HOME) }, close = true)
         Card {
             Label("Strength")
             Seg(listOf(false to "Gentle", true to "Strong"), s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
-            Text("Strong uses more battery and also sets your Air's alarm strength.", style = Type.small, color = a.muted)
+            Text("Strong uses more battery and also sets your Fitbit Air's alarm strength.", style = Type.small, color = a.muted)
         }
         Group(listOf({
             GroupRow({ go(Screen.APPEARANCE) }) {
@@ -105,7 +114,7 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
         }))
-        Group(listOf(
+        Group(listOf<@Composable () -> Unit>(
             { GroupRow({ go(Screen.ACTIVITY) }) {
                 TwoLine("Activity", Modifier.weight(1f)) { Label("This week's calls and messages") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
@@ -118,10 +127,16 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 TwoLine("Share log", Modifier.weight(1f)) { Label("When something didn't buzz") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
-            { GroupRow({ engine.store.update { it.copy(onboarded = false) }; go(Screen.HOME) }) {
-                TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
+            { GroupRow({ go(Screen.ABOUT) }) {
+                TwoLine("About", Modifier.weight(1f)) { Label("Version $version · GPL-3.0") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
+        ) + listOfNotNull<@Composable () -> Unit>(
+            // A testing aid: release builds leave it out, and the Setup checklist covers the same ground there.
+            if (debuggable) ({ GroupRow({ engine.store.update { it.copy(onboarded = false) }; go(Screen.HOME) }) {
+                TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
+                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+            } }) else null,
         ))
         Spacer(Modifier.weight(1f))
         Group(listOf({
@@ -132,10 +147,6 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
             }
         }))
-        Text("Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.",
-            style = Type.small, color = a.muted)
-        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-        Label("AirBuzz $version · GNU GPL v3")
     }
 }
 
@@ -151,6 +162,107 @@ private fun missedAlertsLabel(context: Context): String {
         NotificationManager.IMPORTANCE_MIN, NotificationManager.IMPORTANCE_LOW -> "Silent"
         NotificationManager.IMPORTANCE_DEFAULT -> "Sound"
         else -> "Pop-up with sound"
+    }
+}
+
+fun appVersion(context: Context): String? = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+
+/** One entry on the Licences page, with the texts it shows, as (heading, asset under legal/). */
+data class Licence(val name: String, val licence: String, val texts: List<Pair<String, String>>)
+
+private const val APACHE = "licenses/Apache-2.0.txt"
+
+/** Everything AirBuzz ships under its own licence (THIRD_PARTY_NOTICES.md), read from the app's legal/ assets. */
+val Licences = listOf(
+    Licence("AirBuzz", "GPL-3.0", listOf("Licence" to "LICENSE")),
+    Licence("Third-party notices", "Who made what, and where", listOf("Notices" to "THIRD_PARTY_NOTICES.md")),
+    Licence("Golden Gate", "Apache-2.0 · with notice", listOf("Notice" to "licenses/golden-gate-NOTICE.txt",
+        "Copyright" to "licenses/golden-gate-Apache-2.0.txt", "Licence" to APACHE)),
+    Licence("Mbed TLS", "Apache-2.0", listOf("Licence" to "licenses/mbedtls-LICENSE.txt")),
+    Licence("lwIP", "BSD 3-Clause", listOf("Licence" to "licenses/lwip-BSD.txt")),
+    Licence("fitbit-air", "MIT", listOf("Licence" to "licenses/fitbit-air-MIT.txt")),
+    Licence("libphonenumber", "Apache-2.0", listOf("Licence" to APACHE)),
+    Licence("AndroidX, Compose, RxJava", "Apache-2.0", listOf("Licence" to APACHE)),
+    Licence("Google Sans Flex, Google Sans Code", "SIL OFL 1.1",
+        listOf("Google Sans Flex" to "licenses/GoogleSansFlex-OFL.txt", "Google Sans Code" to "licenses/GoogleSansCode-OFL.txt")),
+    Licence("Instrument Serif", "SIL OFL 1.1", listOf("Licence" to "licenses/InstrumentSerif-OFL.txt")),
+    Licence("Geist Pixel", "SIL OFL 1.1", listOf("Licence" to "licenses/GeistPixel-OFL.txt")),
+)
+
+private fun openWeb(context: Context, url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+
+/** About (Paper lane 05): the app, its licence, the source, the privacy policy and the licences it ships. */
+@Composable
+fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
+    val a = LocalAirColors.current
+    val context = LocalContext.current
+    Page {
+        ScreenBar("About", onBack = onBack)
+        Card(gap = 14.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                // The launcher icon: its foreground layer on the icon's near-black, in a circle.
+                Box(Modifier.size(64.dp).clip(CircleShape).background(Color(0xFF0E100C)), contentAlignment = Alignment.Center) {
+                    Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.requiredSize(96.dp))
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("AirBuzz", style = Type.heading.copy(fontSize = 28.sp, lineHeight = 32.sp), color = a.heading)
+                    Label("Version ${appVersion(context)}")
+                }
+            }
+            Text("Free software under GPL-3.0. You can use, study, share and change it.", style = Type.small, color = a.ink)
+        }
+        Group(listOf(
+            { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz") }) {
+                TwoLine("Source code", Modifier.weight(1f)) { Label("github.com/davort/airbuzz") }
+                GlyphIcon(Glyph.OUT, 22.dp, a.muted)
+            } },
+            { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz/blob/main/PRIVACY.md") }) {
+                TwoLine("Privacy policy", Modifier.weight(1f)) { Label("Kept on your phone") }
+                GlyphIcon(Glyph.OUT, 22.dp, a.muted)
+            } },
+            { GroupRow({ go(Screen.LICENCES) }) {
+                TwoLine("Open-source licences", Modifier.weight(1f)) { Label("AirBuzz and what it uses") }
+                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+            } },
+        ))
+        Spacer(Modifier.weight(1f))
+        Text("Works with Google Fitbit Air. Not made by, endorsed by or affiliated with Google or Fitbit.", style = Type.small, color = a.muted)
+        Text("It talks to the Fitbit Air over an unofficial protocol, so a firmware update could stop it working.", style = Type.small, color = a.muted)
+    }
+}
+
+@Composable
+fun LicencesScreen(open: (Int) -> Unit, onBack: () -> Unit) {
+    val a = LocalAirColors.current
+    val row = { i: Int -> @Composable {
+        GroupRow({ open(i) }) {
+            TwoLine(Licences[i].name, Modifier.weight(1f)) { Label(Licences[i].licence) }
+            GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+        }
+    } }
+    Page {
+        ScreenBar("Licences", onBack = onBack)
+        Text("AirBuzz is free software under GPL-3.0. It builds on the work below, each under its own licence.", style = Type.small, color = a.muted)
+        Group((0..1).map(row))
+        Group((2..7).map(row))
+        Group((8..10).map(row))
+    }
+}
+
+@Composable
+fun LicenceScreen(l: Licence, onBack: () -> Unit) {
+    val a = LocalAirColors.current
+    val context = LocalContext.current
+    val texts = remember(l) { l.texts.map { (heading, file) -> heading to context.assets.open("legal/$file").bufferedReader().use { it.readText() }.trim() } }
+    Page {
+        ScreenBar(l.name, onBack = onBack)
+        Label(l.licence, Modifier.padding(start = 4.dp))
+        Card(gap = 12.dp) {
+            texts.forEachIndexed { i, (heading, body) ->
+                if (texts.size > 1) Label(heading, if (i > 0) Modifier.padding(top = 8.dp) else Modifier)
+                Text(body, style = Type.label.copy(letterSpacing = 0.sp, lineHeight = 18.sp), color = a.ink)
+            }
+        }
     }
 }
 
@@ -221,7 +333,7 @@ fun testSteps(r: BandResult?, buzzedMs: Long?): List<Step> {
     val p = r?.phases ?: emptyMap()
     val open = r?.link == "open"
     val ends = listOf(p["subscribed"] ?: p["connected"] ?: if (open) 0L else null, p["quiet"], p["session"], buzzedMs ?: p["buzzed"])
-    val names = listOf("Found your Air", "Google Health paused", "Secure connection", "Tap sent")
+    val names = listOf("Found your Fitbit Air", "Google Health paused", "Secure connection", "Tap sent")
     var prev = 0L
     var failureShown = false
     return names.mapIndexed { i, name ->
@@ -280,7 +392,7 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
             // The capsule twitches on the tap: two 1.5 dp wobbles.
             val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 4f * Math.PI.toFloat()) * with(LocalDensity.current) { 1.5.dp.toPx() } else 0f
             AirPebble(96.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
-                if (buzzedMs != null) "Your Air buzzed" else if (connecting) "Connecting to your Air" else "Your Air", wave.value)
+                if (buzzedMs != null) "Your Fitbit Air buzzed" else if (connecting) "Connecting to your Fitbit Air" else "Your Fitbit Air", wave.value)
             HGap(32)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Label("Time to tap")
@@ -305,10 +417,10 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
             }
         }
         Text(when {
-            buzzedMs != null -> "Your Air tapped ${seconds(buzzedMs)} after you pressed Test."
-            connecting -> "Connecting to your Air…"
-            failed -> "Couldn't reach your Air. ${r?.message ?: ""}".trim()
-            else -> "Press Test to tap your Air once and see how long it takes. The target is 3 s."
+            buzzedMs != null -> "Your Fitbit Air tapped ${seconds(buzzedMs)} after you pressed Test."
+            connecting -> "Connecting to your Fitbit Air…"
+            failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
+            else -> "Press Test to tap your Fitbit Air once and see how long it takes. The target is 3 s."
         }, style = Type.body, color = a.ink)
         Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
         if (r != null) {
@@ -329,7 +441,7 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
                 }
                 if (r.wrongKeys + r.lostRaces > 0) rows += {
                     GroupRow(vertical = 12.dp) {
-                        Text("Google Health was using your Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
+                        Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
                     }
                 }
             }
@@ -343,14 +455,14 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
                 Pill("Share log", { shareLog(context, engine) }, Modifier.weight(1f), filled = false)
             }
             r != null && !didNotFeel -> {
-                Text("Did your Air buzz?", style = Type.bodyMedium, color = a.ink)
+                Text("Did your Fitbit Air buzz?", style = Type.bodyMedium, color = a.ink)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Pill("Yes", onBack, Modifier.weight(1f))
                     Pill("No", { didNotFeel = true }, Modifier.weight(1f), filled = false)
                 }
             }
             r != null -> {
-                Text("The Air confirmed the tap, so its motor was asked to run. Try Strong in Settings, and check the band is snug on your wrist.",
+                Text("The Fitbit Air confirmed the tap, so its motor was asked to run. Try Strong in Settings, and check the band is snug on your wrist.",
                     style = Type.small, color = a.muted)
                 Pill("Test again", { didNotFeel = false; engine.clearTest(); engine.testBuzz() }, Modifier.fillMaxWidth())
             }

@@ -11,7 +11,7 @@ import com.davort.airbuzz.R
 import com.davort.airbuzz.engine
 import com.davort.airbuzz.ui.MainActivity
 
-/** Silence from the "Ringing your Air" notification. */
+/** Silence from the "Ringing your Fitbit Air" notification. */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_SILENCE) context.engine.silence()
@@ -24,7 +24,7 @@ class ActionReceiver : BroadcastReceiver() {
 
 /**
  * AirBuzz has no permanent notification: Android keeps a notification listener running on its own.
- * It shows "Ringing your Air" with Silence while a call rings the band, and one problem notification while something
+ * It shows "Ringing your Fitbit Air" with Silence while a call rings the band, and one problem notification while something
  * stops alerts reaching the Air (brief decision 41): silent while Bluetooth is off, loud once an alert was missed.
  */
 object Notifications {
@@ -37,15 +37,15 @@ object Notifications {
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.deleteNotificationChannel("status") // 0.1's permanent status notification
-        nm.createNotificationChannel(NotificationChannel(RINGING_CHANNEL, "Ringing your Air", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shown while a call rings your Air, with Silence."
+        nm.createNotificationChannel(NotificationChannel(RINGING_CHANNEL, "Ringing your Fitbit Air", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Shown while a call rings your Fitbit Air, with Silence."
             setShowBadge(false)
         })
         nm.createNotificationChannel(NotificationChannel(PROBLEMS_CHANNEL, "Problems", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Something, such as Bluetooth being off, will stop your Air buzzing. Silent."
+            description = "Something, such as Bluetooth being off, will stop your Fitbit Air buzzing. Silent."
         })
         nm.createNotificationChannel(NotificationChannel(MISSED_CHANNEL, "Missed alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "A call or message didn't reach your Air, with why and the fix."
+            description = "A call or message didn't reach your Fitbit Air, with why and the fix."
         })
     }
 
@@ -58,7 +58,7 @@ object Notifications {
         // Caller and chat names stay off the lock screen.
         val public = NotificationCompat.Builder(context, if (loud) MISSED_CHANNEL else PROBLEMS_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_buzz)
-            .setContentTitle(if (loud) "An alert didn't reach your Air" else title)
+            .setContentTitle(if (loud) "An alert didn't reach your Fitbit Air" else title)
             .build()
         val n = NotificationCompat.Builder(context, if (loud) MISSED_CHANNEL else PROBLEMS_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_buzz)
@@ -93,7 +93,7 @@ object Notifications {
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n = NotificationCompat.Builder(context, RINGING_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_buzz)
-            .setContentTitle("Ringing your Air")
+            .setContentTitle("Ringing your Fitbit Air")
             .setContentText(who)
             .setOngoing(true)
             .setContentIntent(open)

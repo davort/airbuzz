@@ -91,16 +91,26 @@ import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 
-enum class Screen { HOME, SETTINGS, APPEARANCE, TEST, ACTIVITY, SETUP }
+enum class Screen { HOME, SETTINGS, APPEARANCE, TEST, ACTIVITY, SETUP, ABOUT, LICENCES, LICENCE }
 
 /** Settings and the pages reached from it live in the sheet that rises from the shelf (decision 40). */
-private val Screen.inSheet get() = this == Screen.SETTINGS || this == Screen.APPEARANCE || this == Screen.SETUP || this == Screen.TEST
+private val Screen.inSheet get() = this != Screen.HOME && this != Screen.ACTIVITY
 
 /** How deep a page sits below Home, which decides whether a move to it slides forward or back. */
 private val Screen.depth get() = when (this) {
     Screen.HOME -> 0
     Screen.SETTINGS, Screen.ACTIVITY -> 1
-    Screen.APPEARANCE, Screen.SETUP, Screen.TEST -> 2
+    Screen.APPEARANCE, Screen.SETUP, Screen.TEST, Screen.ABOUT -> 2
+    Screen.LICENCES -> 3
+    Screen.LICENCE -> 4
+}
+
+/** Where Back goes from each page. */
+private val Screen.parent get() = when (this) {
+    Screen.APPEARANCE, Screen.SETUP, Screen.ABOUT -> Screen.SETTINGS
+    Screen.LICENCES -> Screen.ABOUT
+    Screen.LICENCE -> Screen.LICENCES
+    else -> Screen.HOME
 }
 
 enum class SheetKind { PEOPLE, APPS, PATTERN, QUIET, PAUSE }
@@ -146,10 +156,9 @@ fun rememberNow(everyMs: Long = 30_000): Long {
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
+    var licence by rememberSaveable { mutableIntStateOf(0) }
     val go: (Screen) -> Unit = { screen = it }
-    BackHandler(screen != Screen.HOME) {
-        go(if (screen == Screen.APPEARANCE || screen == Screen.SETUP) Screen.SETTINGS else Screen.HOME)
-    }
+    BackHandler(screen != Screen.HOME) { go(screen.parent) }
     val open: (SheetKind) -> Unit = { sheet = it }
     val context = LocalContext.current
     val resumed = rememberResumeTick()
@@ -178,6 +187,9 @@ fun App(engine: Engine, settings: AirSettings) {
                 Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
                 Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
                 Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+                Screen.ABOUT -> AboutScreen(go) { go(Screen.SETTINGS) }
+                Screen.LICENCES -> LicencesScreen({ licence = it; go(Screen.LICENCE) }) { go(Screen.ABOUT) }
+                Screen.LICENCE -> LicenceScreen(Licences[licence]) { go(Screen.LICENCES) }
                 else -> SettingsScreen(engine, settings, go)
             }
         }
@@ -308,7 +320,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                     Sentence(listOf(
                         Part.Words("When"),
                         Part.Blank("Who can ring", who[0], open = sheet == SheetKind.PEOPLE, shorter = who.drop(1)) { open(SheetKind.PEOPLE) },
-                        Part.Words((if (one) "calls" else "call") + " from any app, ring my Air."),
+                        Part.Words((if (one) "calls" else "call") + " from any app, ring my Fitbit Air."),
                     ))
                 } },
                 { RuleItem("Messages", "Max 1 buzz per 15 s") {
@@ -376,7 +388,7 @@ fun PausedCard(s: AirSettings, now: Long, onResume: () -> Unit, onClick: () -> U
             Pill("Resume", onResume, small = true)
         }
         Text(
-            ringsAnyway(s)?.let { "Only $it can ring your Air until then." } ?: "Nothing buzzes until then.",
+            ringsAnyway(s)?.let { "Only $it can ring your Fitbit Air until then." } ?: "Nothing buzzes until then.",
             style = Type.small, color = a.muted,
         )
     }
@@ -405,11 +417,11 @@ data class Problem(val title: String, val detail: String, val action: String, va
 
 /** The first thing stopping AirBuzz, in the order it must be fixed. */
 fun firstProblem(context: android.content.Context, lastError: String?, reached: Long?): Problem? = when {
-    !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
+    !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Fitbit Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
     !Setup.hasNearby(context) -> Problem("Can't use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
-    Setup.bondedAirAddress(context) == null -> Problem("No Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
+    Setup.bondedAirAddress(context) == null -> Problem("No Fitbit Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
     !Setup.hasListener(context) -> Problem("Can't see alerts", "Notification access is off", "Allow", Curve.BELL_OFF, Fix.LISTENER)
-    lastError != null -> Problem("Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
+    lastError != null -> Problem("Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
     else -> null
 }
 
@@ -498,7 +510,7 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, missed: String? 
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(shown?.title ?: "Your Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shown?.title ?: "Your Fitbit Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
                     if (shown != null && missed != null) Label(missed, color = a.warn)
                     else if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -527,10 +539,10 @@ fun describe(e: Entry): String {
     return when {
         e.kind == Kind.TEST -> if (e.result == com.davort.airbuzz.data.Result.BUZZED) "Test buzz · ${seconds(e.latencyMs)}" else "Test buzz · failed"
         e.kind == Kind.CALL && e.fate == Fate.BUZZED -> "$who called · " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
-        e.kind == Kind.CALL && e.fate == Fate.FAILED -> "$who called · couldn't reach your Air"
+        e.kind == Kind.CALL && e.fate == Fate.FAILED -> "$who called · couldn't reach your Fitbit Air"
         e.kind == Kind.CALL -> "$who called · ${reasonLabel(e).lowercase()}"
         e.fate == Fate.BUZZED -> if (e.count > 1) "$who · ${e.count} messages, 1 buzz" else "$who · ${e.appLabel}"
-        e.fate == Fate.FAILED -> "$who · couldn't reach your Air"
+        e.fate == Fate.FAILED -> "$who · couldn't reach your Fitbit Air"
         else -> "${e.appLabel} · ${reasonLabel(e).lowercase()}"
     }
 }

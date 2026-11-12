@@ -14,7 +14,7 @@ object AirHaptics {
 
     /** One strength entry: field 1 { field 1 { field 1 = strength } }. */
     fun entry(strength: Int): ByteArray {
-        require(strength == LOW || strength == HIGH) { "The Air has two strengths: 2 or 3." }
+        require(strength == LOW || strength == HIGH) { "The Fitbit Air has two strengths: 2 or 3." }
         return byteArrayOf(0x0A, 0x04, 0x0A, 0x02, 0x08, strength.toByte())
     }
 

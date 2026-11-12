@@ -2,7 +2,7 @@
 
 AirBuzz makes a Google Fitbit Air vibrate for calls from people you choose and messages from apps you choose. Nothing else buzzes.
 
-Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Air over an unofficial protocol, so a firmware update could stop it working.
+Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It talks to the Fitbit Air over an unofficial protocol, so a firmware update could stop it working.
 
 ## Versions
 
@@ -33,14 +33,16 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.6.3** (versionCode 25): new app icon, the Air's pebble with two Lime tap rings on near-black, with a matching themed (monochrome) icon and notification icon (brief decision 45). The 512 px Play Store icon is `store/play-icon-512.png`.
 - **0.6.4** (versionCode 26): Settings has a Missed alerts row under Appearance. It shows how that notification arrives (Pop-up with sound, Sound, Silent or Off) and opens Android's page for it (issue #2).
 - **0.6.5** (versionCode 27): once a problem has cost an alert, the Air shelf's second line says how many, such as "1 missed since 13:58", in the warning colour (issue #3). The light warning colour is a little darker (#A35E00), so its text keeps 4.5:1 on white; `ThemeTest` now checks it.
+- **0.6.6** (versionCode 28): Settings › About shows the version and licence and links to the source code and the privacy policy (`PRIVACY.md`). Open-source licences lists everything AirBuzz ships, each opening its full text from the app's `legal/` assets. The not-affiliated line moved from Settings to About. "Show onboarding again" appears only in debug builds.
+- **0.6.7** (versionCode 29): the band is called "Fitbit Air" everywhere you can read it, never a bare "Air": "Your Fitbit Air" on the shelf, "No Fitbit Air paired", "Fitbit Air out of reach", "Who can ring your Fitbit Air?", the notifications and their channels in Android settings, and Test buzz's errors. Welcome, the Settings device row and About say "Google Fitbit Air". Onboarding's last step says to tap Your Fitbit Air at the bottom of Home instead of naming the "Air shelf".
 
 ## What it does
 
-- **Calls**, from any app that rings (phone, WhatsApp, Signal…): the Air buzzes every second until you answer, decline or press Silence, for up to 60 s. Who can ring is Chosen people (the default), Contacts, or Anyone. Quiet times and Pause silence calls too, except from people in Stay quiet's "Let some people ring anyway" list, which is off and empty until you fill it.
+- **Calls**, from any app that rings (phone, WhatsApp, Signal…): the Fitbit Air buzzes every second until you answer, decline or press Silence, for up to 60 s. Who can ring is Chosen people (the default), Contacts, or Anyone. Quiet times and Pause silence calls too, except from people in Stay quiet's "Let some people ring anyway" list, which is off and empty until you fill it.
 - **Messages** from chosen apps: one, two or three taps. Messages from the same app within 15 s share one buzz.
 - **Stay quiet** at night, in Do Not Disturb, and while you use the phone (all on by default).
 - **Activity**: the last three alerts on Home and a week of history, each with what AirBuzz did and why.
-- **Test buzz** shows how long the Air took, step by step.
+- **Test buzz** shows how long the Fitbit Air took, step by step.
 - **Appearance**: System, Light or Dark, with an accent colour for each.
 
 ## How it is put together
@@ -49,7 +51,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 |---|---|
 | `band/` | `AirBand` drives the Air over Bluetooth LE and Golden Gate: connect (or reuse the open link), wait for Google Health's traffic to go quiet, open a DTLS session with the band's public `BOOTSTRAP` key, write the haptic strength to make it buzz, then hand the channel back to Google Health. |
 | `rules/` | Pure decisions: who may ring, which apps tap, quiet rules, the 15 s merge, phone number matching with libphonenumber. Unit tested. |
-| `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages. Android keeps a notification listener running, so there is no foreground service or permanent notification; the notifications are "Ringing your Air" with Silence during a call, and one problem notification: silent while Bluetooth is off, loud once a call or message didn't reach the Air (brief decision 41). |
+| `service/` | `AlertListener` (a notification listener) recognises incoming calls and messages. Android keeps a notification listener running, so there is no foreground service or permanent notification; the notifications are "Ringing your Fitbit Air" with Silence during a call, and one problem notification: silent while Bluetooth is off, loud once a call or message didn't reach the Fitbit Air (brief decision 41). |
 | `data/` | Settings and the week's activity log, kept on the phone only. |
 | `ui/` | Jetpack Compose screens in the approved look (design pass in Paper, brief decisions 20–39): rules as sentences with tinted blanks that each open one bottom sheet. `Theme.kt` holds the colour and type tokens; `Onboarding.kt` is the first-launch setup. |
 | `Engine.kt` | Connects the two: one queue of band commands, where a call goes ahead of messages. |
@@ -59,7 +61,7 @@ Choices that came from measuring on a real Air (test app 0.2–0.4 in the privat
 - **The wrong key.** Every new Golden Gate stack is first offered a key AirBuzz doesn't have (`-10601`). Keeping the same stack up lets the band switch to `BOOTSTRAP`; restarting it fails every time.
 - **The fast-link request** (`CONNECTION_PRIORITY_HIGH`) goes out at once on the open link, but on a new connection only after AirBuzz's own session exists, so it can't help Google Health win the handshake race.
 
-Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. Its step log (shared only when you press Share log) names apps and outcomes, never message text or callers, and also keeps one week. It never stores message text and has no internet permission.
+Privacy: AirBuzz reads notifications to recognise calls and messages. It keeps the app, the caller or chat name, and what it did, for a week, on the phone. Its step log (shared only when you press Share log) names apps and outcomes, never message text or callers, and also keeps one week. It never stores message text and has no internet permission. The full policy is in [PRIVACY.md](PRIVACY.md).
 
 ## Build
 

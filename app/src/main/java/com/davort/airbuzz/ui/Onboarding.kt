@@ -195,8 +195,8 @@ private fun CheckRow(title: String, label: String, end: @Composable () -> Unit) 
 @Composable
 private fun ColumnScope.Welcome(next: () -> Unit) {
     Step({ StepFoot("Start", next) }) {
-        StepHead("Your Air taps\nfor what matters",
-            "AirBuzz makes your Fitbit Air tap for messages from apps you choose, and ring for calls from people you choose. Setup takes about two minutes.") {
+        StepHead("Your Fitbit\u00A0Air taps\nfor what matters",
+            "AirBuzz makes your Google Fitbit Air tap for messages from apps you choose, and ring for calls from people you choose. Setup takes about two minutes.") {
             AirPebble(80.dp, Buzz.TAPPED)
         }
     }
@@ -218,13 +218,13 @@ private fun ColumnScope.FindAir(next: () -> Unit) {
             else -> StepFoot("Next", next)
         }
     }) {
-        StepHead("Find your Air", "AirBuzz talks to your Air over Bluetooth, using the pairing Google Health already made.") {
+        StepHead("Find your Fitbit\u00A0Air", "AirBuzz talks to it over Bluetooth, using the pairing Google Health already made.") {
             if (found) AirPebble(64.dp) else IconCircle(Curve.BLUETOOTH)
         }
         when {
             !nearby -> AndroidAsks("Allow AirBuzz to find, connect to, and determine the relative position of nearby devices?")
-            !on -> Group(listOf({ CheckRow("Bluetooth is off", "Your Air needs it") {} }))
-            !found -> Group(listOf({ CheckRow("No Air paired", "Pair it in Google Health first") {} }))
+            !on -> Group(listOf({ CheckRow("Bluetooth is off", "Your Fitbit Air needs it") {} }))
+            !found -> Group(listOf({ CheckRow("No Fitbit Air paired", "Pair it in Google Health first") {} }))
             else -> Group(listOf({ CheckRow("Fitbit Air", "Paired in Google Health") { Done("Found") } }))
         }
     }
@@ -241,11 +241,11 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
     val linked = remember(tick) { Setup.isAssociated(context) }
     // Linking can fail when Android doesn't find the Air; then the step lets you go on and Setup keeps the row.
     Step({ StepFoot("Next", next, enabled = linked || error != null) }) {
-        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Air.") {
+        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit Air.") {
             IconCircle(Curve.LINK)
         }
         Group(listOf(
-            { CheckRow("Link your Air", "Android asks once") {
+            { CheckRow("Link your Fitbit Air", "Android asks once") {
                 if (linked) Done("Linked") else Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
             } },
             { CheckRow("Allow background activity", "${Setup.maker} · AirBuzz can't check") {
@@ -276,7 +276,7 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Who can ring your Air?", "Calls from these people ring until you answer.") {
+        StepHead("Who can ring your Fitbit\u00A0Air?", "Calls from these people ring until you answer.") {
             IconCircle(Curve.PHONE)
         }
         Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
@@ -306,7 +306,7 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
             .filter { it.pkg in s.apps || it.pkg in MESSENGERS || (busy[it.pkg] ?: 0) > 0 }.take(6)
     }
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Which apps tap your Air?", "Messages from these apps tap your Air. Everything else stays on your phone.") {
+        StepHead("Which apps tap your Fitbit\u00A0Air?", "Messages from these apps tap your band. Everything else stays on your phone.") {
             IconCircle(Curve.APPS)
         }
         Group(shown.map { app ->
@@ -343,11 +343,11 @@ private fun ColumnScope.FeelIt(engine: Engine) {
     val connecting = run != null && buzzed == null && r == null
     val buzz = when { set -> Buzz.REST; buzzed != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }
     val (title, body) = when {
-        set -> "You're set" to "AirBuzz is on. Change anything later from the Air shelf on Home."
-        buzzed != null -> "Feel it" to "Your Air tapped ${seconds(buzzed)} after you pressed. Did you feel it?"
-        connecting -> "Feel it" to "Connecting to your Air…"
-        failed -> "No tap yet" to "Couldn't reach your Air. ${r?.message ?: ""}".trim()
-        else -> "Feel it" to "Press Test buzz. Your Air should tap within about 3 seconds."
+        set -> "You're set" to "AirBuzz is on. To change anything later, tap Your Fitbit Air at the bottom of Home."
+        buzzed != null -> "Feel it" to "Your Fitbit Air tapped ${seconds(buzzed)} after you pressed. Did you feel it?"
+        connecting -> "Feel it" to "Connecting to your Fitbit Air…"
+        failed -> "No tap yet" to "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
+        else -> "Feel it" to "Press Test buzz. Your Fitbit Air should tap within about 3 seconds."
     }
     Step({
         when {

@@ -96,6 +96,8 @@ enum class Glyph(val lines: List<List<Offset>>) {
     CHECK(listOf(listOf(Offset(5f, 12.5f), Offset(9.5f, 17f), Offset(19f, 7.5f)))),
     PAUSE(listOf(listOf(Offset(9f, 6f), Offset(9f, 18f)), listOf(Offset(15f, 6f), Offset(15f, 18f)))),
     CLOSE(listOf(listOf(Offset(6.5f, 6.5f), Offset(17.5f, 17.5f)), listOf(Offset(17.5f, 6.5f), Offset(6.5f, 17.5f)))),
+    /** Opens a web page outside AirBuzz. */
+    OUT(listOf(listOf(Offset(8f, 16f), Offset(16f, 8f)), listOf(Offset(9.5f, 8f), Offset(16f, 8f), Offset(16f, 14.5f)))),
 }
 
 /** Icons with curves, as SVG paths on the same 24-unit grid, drawn from the Paper design. */

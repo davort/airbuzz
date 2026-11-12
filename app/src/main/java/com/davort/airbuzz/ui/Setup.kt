@@ -63,17 +63,17 @@ object Setup {
 
     fun checks(c: Context, testedOk: Boolean): List<Check> = buildList {
         val nearby = hasNearby(c)
-        add(Check("Nearby devices", "Lets AirBuzz talk to your Air over Bluetooth.", nearby, "Allow", Fix.NEARBY))
-        add(Check("Air paired", "Pair your Air in the Google Health app first. AirBuzz uses that pairing.",
+        add(Check("Nearby devices", "Lets AirBuzz talk to your Fitbit Air over Bluetooth.", nearby, "Allow", Fix.NEARBY))
+        add(Check("Fitbit Air paired", "Pair your Fitbit Air in the Google Health app first. AirBuzz uses that pairing.",
             if (nearby) bondedAirAddress(c) != null else null, "Open Bluetooth", Fix.PAIR))
         add(Check("Notification access", "Lets AirBuzz see calls and messages. Nothing is stored except who they were from.",
             hasListener(c), "Allow", Fix.LISTENER))
-        add(Check("Notifications", "Shows Silence while a call rings your Air.", hasPostNotifications(c), "Allow", Fix.NOTIFICATIONS))
-        add(Check("Run in the background", "Links AirBuzz to your Air in Android, so Android lets it keep running in the background.",
+        add(Check("Notifications", "Shows Silence while a call rings your Fitbit Air.", hasPostNotifications(c), "Allow", Fix.NOTIFICATIONS))
+        add(Check("Run in the background", "Links AirBuzz to your Fitbit Air in Android, so Android lets it keep running in the background.",
             isAssociated(c), "Link", Fix.COMPANION))
         if (isXiaomi) add(Check("Xiaomi Autostart", "On Xiaomi phones, also turn on Autostart for AirBuzz. AirBuzz can't check this.",
             null, "Open", Fix.AUTOSTART))
-        add(Check("Test buzz", "Checks the whole path to your Air.", testedOk, "Test", Fix.TEST))
+        add(Check("Test buzz", "Checks the whole path to your Fitbit Air.", testedOk, "Test", Fix.TEST))
     }
 
     fun listenerSettings(c: Context): Intent =
@@ -103,7 +103,7 @@ object Setup {
             override fun onDeviceFound(sender: IntentSender) = launch(sender)
             override fun onAssociationPending(sender: IntentSender) = launch(sender)
             override fun onAssociationCreated(info: AssociationInfo) {}
-            override fun onFailure(error: CharSequence?) = failed(error?.toString() ?: "Android couldn't find your Air.")
+            override fun onFailure(error: CharSequence?) = failed(error?.toString() ?: "Android couldn't find your Fitbit Air.")
         }
         if (Build.VERSION.SDK_INT >= 33) cdm.associate(request, activity.mainExecutor, callback)
         else @Suppress("DEPRECATION") cdm.associate(request, callback, null)
