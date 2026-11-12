@@ -1,5 +1,7 @@
 package com.davort.airbuzz.ui
 
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings as SystemSettings
@@ -93,6 +95,15 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
                 }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
+        }, {
+            val resumed = rememberResumeTick()
+            val missed = remember(resumed) { missedAlertsLabel(context) }
+            GroupRow({ context.startActivity(Intent(SystemSettings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(SystemSettings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(SystemSettings.EXTRA_CHANNEL_ID, MISSED_CHANNEL)) }) {
+                TwoLine("Missed alerts", Modifier.weight(1f)) { Label(missed) }
+                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
+            }
         }))
         Group(listOf(
             { GroupRow({ go(Screen.ACTIVITY) }) {
@@ -125,6 +136,21 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
             style = Type.small, color = a.muted)
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
         Label("AirBuzz $version · GNU GPL v3")
+    }
+}
+
+/** The id of the channel the app thread's Notifications uses when an alert didn't reach the Air. */
+private const val MISSED_CHANNEL = "missed"
+
+/** How the Missed alerts notification arrives, in the words of Android's own channel page (issue #2). */
+private fun missedAlertsLabel(context: Context): String {
+    val nm = context.getSystemService(NotificationManager::class.java)
+    if (!nm.areNotificationsEnabled()) return "Off"
+    return when (nm.getNotificationChannel(MISSED_CHANNEL)?.importance ?: NotificationManager.IMPORTANCE_HIGH) {
+        NotificationManager.IMPORTANCE_NONE -> "Off"
+        NotificationManager.IMPORTANCE_MIN, NotificationManager.IMPORTANCE_LOW -> "Silent"
+        NotificationManager.IMPORTANCE_DEFAULT -> "Sound"
+        else -> "Pop-up with sound"
     }
 }
 
