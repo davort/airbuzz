@@ -1,0 +1,69 @@
+# Checks every push to main and every pull request: the version bookkeeping (.github/version-check.sh), the unit tests
+# and a debug APK, so a broken main shows up minutes after the push that broke it. Needs no secrets; the debug APK is
+# signed with the runner's own throwaway key and isn't kept.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["PRIVACY.md", "TERMS.md", "store/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run moot, so it is cancelled to save minutes.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version bookkeeping
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then
+            git fetch --quiet --no-tags --depth=1 origin "$BASE" || true
+          fi
+          .github/version-check.sh "$BASE"
+
+      - name: Golden Gate submodules
+        run: |
+          git submodule update --init third_party/golden-gate
+          git -C third_party/golden-gate submodule update --init external/lwip external/mbedtls
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # v5, as in release.yml: v6's caching is a proprietary Gradle component under its own terms of use. v5's caching
+      # is open source and saves the Gradle cache from main only.
+      - uses: gradle/actions/setup-gradle@v5
+
+      # Keep in step with app/ and goldengate/ (compileSdk, ndkVersion, cmake version), release.yml and .agents/setup.
+      - name: Android SDK packages
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          { yes || true; } | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" | grep -v '^\[=' || true
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Unit tests and debug APK
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          retention-days: 7
+          if-no-files-found: ignore
