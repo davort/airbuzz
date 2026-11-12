@@ -95,6 +95,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.unit.Dp
 import java.util.Locale
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
@@ -272,8 +279,9 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
                 Column {
                     Label(if (s.people.size >= 5) "Your people · ${s.people.size}" else "Your people")
                     Gap(4)
-                    PeopleRows(s.people, firstLine = false) { list -> engine.store.update { it.copy(people = list) } }
+                    // At the top, so it stays in reach however long the list grows.
                     TextAction("Add people", pick)
+                    PeopleRows(s.people) { list -> engine.store.update { it.copy(people = list) } }
                 }
                 val recent = recentCallers(entries, s, regionOf(context))
                 if (recent.isNotEmpty()) Column {
@@ -356,64 +364,79 @@ fun IconAction(description: String, onClick: () -> Unit, icon: @Composable () ->
 /** How long a removed person's Undo row stays. */
 const val UNDO_MS = 5000
 
-private data class Removed(val index: Int, val person: Person)
-
 /**
- * People, each with a bin. The bin removes the person at once and leaves an Undo row in their place, with a line
- * under it that drains for five seconds; then the row folds away. Removing someone else ends the last Undo early.
- * [firstLine] draws a hairline above the first row, for a list that follows other rows.
+ * People, each under a hairline and with a bin. The bin removes the person at once: their row slides out to the left
+ * and a tinted Undo row takes its place, whose Undo button empties over five seconds; then the row folds away. Each
+ * removal keeps its own five seconds, however many people are removed meanwhile.
  */
 @Composable
-fun PeopleRows(people: List<Person>, firstLine: Boolean, onChange: (List<Person>) -> Unit) {
+fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
     val a = LocalAirColors.current
-    var removed by remember { mutableStateOf<Removed?>(null) }
-    val rows: List<Pair<Person, Boolean>> = people.map { it to false }.toMutableList().apply {
-        removed?.let { add(it.index.coerceAtMost(size), it.person to true) }
-    }
-    rows.forEachIndexed { i, (p, gone) ->
-        key(p, gone) {
-            if (gone) UndoRow(p, line = firstLine || i > 0,
-                onUndo = { removed?.let { r -> onChange(people.toMutableList().apply { add(r.index.coerceAtMost(size), r.person) }) }; removed = null },
-                onGone = { removed = null })
-            else LineRow(!firstLine && i == 0) {
-                Avatar(p.name)
-                TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
-                IconAction("Remove ${p.name}", {
-                    removed = Removed(people.indexOf(p), p)
-                    onChange(people - p)
-                }) { CurveIcon(Curve.BIN, 20.dp, a.muted, 1.8f) }
+    // Removed people still showing Undo. They keep their place from the last order shown, so one folding away
+    // doesn't move another; people added since come last, as they do in [people].
+    val removed = remember { mutableStateListOf<Person>() }
+    val lastOrder = remember { ArrayList<Person>() }
+    val shown = lastOrder.filter { it in people || it in removed } + people.filter { it !in lastOrder }
+    lastOrder.clear(); lastOrder.addAll(shown)
+    shown.forEach { p ->
+        key(p) {
+            val gone = p in removed && p !in people
+            AnimatedContent(gone, label = "remove", transitionSpec = {
+                if (targetState) (slideInHorizontally(tween(260, easing = Motion.Out)) { it / 5 } + fadeIn(tween(200, 60, Motion.Out))) togetherWith
+                    (slideOutHorizontally(tween(220, easing = Motion.In)) { -it / 2 } + fadeOut(tween(160, easing = Motion.In)))
+                else (slideInHorizontally(tween(260, easing = Motion.Out)) { -it / 5 } + fadeIn(tween(200, 60, Motion.Out))) togetherWith
+                    fadeOut(tween(120, easing = Motion.In))
+            }) { removing ->
+                if (removing) UndoRow(p,
+                    onUndo = {
+                        val before = shown.takeWhile { it != p }.count { it in people }
+                        removed.remove(p)
+                        onChange(people.toMutableList().apply { add(before.coerceAtMost(size), p) })
+                    },
+                    onGone = { removed.remove(p) })
+                else LineRow(first = false) {
+                    Avatar(p.name)
+                    TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
+                    IconAction("Remove ${p.name}", {
+                        removed.add(p)
+                        onChange(people - p)
+                    }) { CurveIcon(Curve.BIN, 20.dp, a.muted, 1.8f) }
+                }
             }
         }
     }
-    // The Undo row's draining line stands in for the hairline above "Add people".
-    if (rows.isNotEmpty() && !rows.last().second) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
 }
 
+/** A removed person: a tinted row whose Undo button holds the time left as a fill that empties right to left. */
 @Composable
-private fun UndoRow(p: Person, line: Boolean, onUndo: () -> Unit, onGone: () -> Unit) {
+private fun UndoRow(p: Person, onUndo: () -> Unit, onGone: () -> Unit) {
     val a = LocalAirColors.current
     val left = remember { Animatable(1f) }
-    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    val visible = remember { MutableTransitionState(true) }
     LaunchedEffect(Unit) {
         left.animateTo(0f, tween(UNDO_MS, easing = LinearEasing))
-        shown.targetState = false
+        visible.targetState = false
     }
-    LaunchedEffect(shown.isIdle, shown.currentState) { if (shown.isIdle && !shown.currentState) onGone() }
-    AnimatedVisibility(shown, enter = fadeIn(tween(150, easing = Motion.Out)),
-        exit = shrinkVertically(tween(220, easing = Motion.InOut)) + fadeOut(tween(150, easing = Motion.In))) {
-        Column(Modifier.fillMaxWidth()) {
-            if (line) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.alpha(0.45f)) { Avatar(p.name) }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(p.name, style = Type.bodyMedium, color = a.muted)
-                    Label("Removed")
-                }
-                Pill("Undo", onUndo, filled = false, small = true)
+    LaunchedEffect(visible.isIdle, visible.currentState) { if (visible.isIdle && !visible.currentState) onGone() }
+    AnimatedVisibility(visible, enter = EnterTransition.None,
+        exit = shrinkVertically(tween(240, easing = Motion.InOut)) + fadeOut(tween(160, easing = Motion.In))) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(a.tint)
+            .padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.alpha(0.5f)) { Avatar(p.name) }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(p.name, style = Type.bodyMedium, color = a.ink, maxLines = 1)
+                Label("Removed", color = a.accent)
             }
-            Box(Modifier.fillMaxWidth().height(2.dp).background(a.line)) {
-                Box(Modifier.fillMaxWidth(left.value).height(2.dp).background(a.accent))
+            val shape = CircleShape
+            Box(Modifier.height(40.dp).clip(shape).background(a.surface).border(1.dp, a.accent, shape)
+                .clickable(role = Role.Button, onClickLabel = "Undo removing ${p.name}", onClick = onUndo),
+                contentAlignment = Alignment.Center) {
+                // The time left, as a fill behind the word.
+                Box(Modifier.matchParentSize().drawBehind {
+                    drawRect(a.tintPressed, size = size.copy(width = size.width * left.value))
+                })
+                Text("Undo", style = Type.smallMedium, color = a.accent, modifier = Modifier.padding(horizontal = 18.dp))
             }
         }
     }
@@ -527,8 +550,8 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             AirSwitch(s.ringAnyway, { on -> update { it.copy(ringAnyway = on) } })
         }
         if (s.ringAnyway) {
-            PeopleRows(s.ringAnywayPeople, firstLine = true) { list -> update { it.copy(ringAnywayPeople = list) } }
             TextAction("Add people", pick)
+            PeopleRows(s.ringAnywayPeople) { list -> update { it.copy(ringAnywayPeople = list) } }
         }
     }
     if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)

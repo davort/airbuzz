@@ -253,9 +253,9 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 }) { state ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         when (state) {
-                            1 -> { GlyphIcon(Glyph.PAUSE, 16.dp, a.muted, 2.4f); HGap(4); Text("Paused", style = Type.smallMedium, color = a.muted) }
-                            0 -> { Dot(a.ok); HGap(6); Text("On", style = Type.smallMedium, color = a.ink) }
-                            else -> { Dot(a.muted); HGap(6); Text("Off", style = Type.smallMedium, color = a.muted) }
+                            1 -> { GlyphIcon(Glyph.PAUSE, 16.dp, a.muted, 2.4f); HGap(4); Text("Paused", style = Type.status, color = a.muted) }
+                            0 -> { Dot(a.ok); HGap(6); Text("On", style = Type.status, color = a.ink) }
+                            else -> { Dot(a.muted); HGap(6); Text("Off", style = Type.status, color = a.muted) }
                         }
                     }
                 }

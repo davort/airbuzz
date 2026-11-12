@@ -334,11 +334,11 @@ fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fille
     }
 }
 
-/** An accent text action with a leading glyph, such as "+ Add people". */
+/** An accent text action with a leading glyph, such as "+ Add people", 56 dp tall so it is an easy target. */
 @Composable
 fun TextAction(text: String, onClick: () -> Unit, glyph: Glyph = Glyph.PLUS) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().height(48.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(56.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         GlyphIcon(glyph, 22.dp, a.accent)
         Spacer(Modifier.width(12.dp))
         Text(text, style = Type.bodyMedium, color = a.accent)

@@ -118,6 +118,8 @@ object Type {
     /** Small uppercase labels, times and small numbers, with tabular figures. */
     val label = style(Code, 12, 16).copy(letterSpacing = 0.06.em, fontFeatureSettings = "tnum")
     fun number(size: Int, line: Int) = style(Pixel, size, line)
+    /** The On / Paused / Off word next to the Home switch: a readout, in the big numbers' pixel face. */
+    val status = style(Pixel, 24, 28)
 }
 
 private fun typography(): Typography {
