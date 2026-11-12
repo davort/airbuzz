@@ -93,7 +93,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val TX: UUID = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         val RX: UUID = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-        val BATTERY_LEVEL: UUID = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
 
         const val CONNECT_TIMEOUT_MS = 45_000L
         const val HANDSHAKE_TIMEOUT_MS = 6_000L
@@ -117,7 +116,10 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         /** After a drop or a failed attempt the open link is asked for again after this, doubling up to [WARM_RETRY_MAX_MS]. */
         const val WARM_RETRY_MS = 5_000L
         const val WARM_RETRY_MAX_MS = 30 * 60_000L
-        /** How often the step log records the Air's and the phone's battery, to measure what the open link costs. */
+        /**
+         * How often the step log records the phone's battery, to measure what the open link costs. The Air's can't be
+         * read: it offers no battery level among its 8 services (12 Nov).
+         */
         const val BATTERY_EVERY_MS = 60 * 60_000L
     }
 
@@ -231,7 +233,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             // On the open link the fast-link request goes out at once (test app 0.4: no lost races from it).
             linkBoosted = open.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
             if (!subscribe(open)) {
-                // Most likely an hourly battery read still in flight; give it a moment before connecting afresh.
+                // Most likely another Bluetooth request still in flight; give it a moment before connecting afresh.
                 val token = startedAt
                 main.postDelayed({
                     if (busy && startedAt == token && gatt === open && !subscribe(open)) reconnectFresh(device, "could not refresh the subscription")
@@ -357,7 +359,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     warming = false
                     linkReadyAt = SystemClock.elapsedRealtime()
                     log("The link is open")
-                    readBattery(linkReadyAt)
+                    logBattery(linkReadyAt)
                 }
                 return@onMain
             }
@@ -369,17 +371,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) = onMain(g) {
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) fail("Tracker write failed (status $status).") else writeNext()
-        }
-
-        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) =
-            onMain(g) { if (c.uuid == BATTERY_LEVEL) batteryRead(value, status) }
-
-        @Deprecated("Used below API 33")
-        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-            if (Build.VERSION.SDK_INT >= 33) return
-            @Suppress("DEPRECATION")
-            val value = c.value?.copyOf() ?: ByteArray(0)
-            onMain(g) { if (c.uuid == BATTERY_LEVEL) batteryRead(value, status) }
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) =
@@ -409,30 +400,17 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             silentSince = 0L
         }
         // Google Health's packets wake the phone now and then even in deep sleep, which keeps the battery line hourly.
-        if (!busy) readBattery(now)
+        logBattery(now)
         quietWait?.record(now, packet.size)
         rxSource?.receiveData(packet)?.subscribe({}, { fail("Receive failed: ${it.message}") })?.let(disposables::add)
     }
 
-    /** Reads the Air's battery over the open link, once per [BATTERY_EVERY_MS], for the step log. */
-    private fun readBattery(now: Long) {
-        if (busy || !linkUp || warming || now - batteryAt < BATTERY_EVERY_MS && batteryAt != 0L) return
+    /** Logs the phone's battery once per [BATTERY_EVERY_MS] while the link is open. */
+    private fun logBattery(now: Long) {
+        if (now - batteryAt < BATTERY_EVERY_MS && batteryAt != 0L) return
         batteryAt = now
-        val g = gatt ?: return
-        val c = g.services.firstNotNullOfOrNull { it.getCharacteristic(BATTERY_LEVEL) }
-        // Every read on 12 Nov said "not readable"; say which way, to find out why.
-        if (c == null) log("Battery: Air has no battery level among ${g.services.size} services, ${phoneBattery()}")
-        else if (!g.readCharacteristic(c)) log("Battery: Air read refused by Android, ${phoneBattery()}")
-    }
-
-    private fun batteryRead(value: ByteArray, status: Int) {
-        val air = if (status == BluetoothGatt.GATT_SUCCESS && value.isNotEmpty()) "${value[0].toInt() and 0xFF}%" else "not readable (status $status)"
-        log("Battery: Air $air, ${phoneBattery()}")
-    }
-
-    private fun phoneBattery(): String {
-        val bm = context.getSystemService(BatteryManager::class.java) ?: return "phone unknown"
-        return "phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}"
+        val bm = context.getSystemService(BatteryManager::class.java) ?: return
+        log("Battery: phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}")
     }
 
     private fun enqueue(packet: ByteArray) {

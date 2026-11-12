@@ -167,7 +167,7 @@ class Engine(private val app: Context) {
 
     private val queue = ArrayDeque<Job>()
     private var running: Job? = null
-    /** Jobs that failed, usually because Google Health held the Air, waiting [RETRY_MS] to try again. */
+    /** Jobs that failed, usually because Google Health held the Air, waiting [RETRY_MS] (or [SILENT_RING_RETRY_MS]) to try again. */
     private val waiting = mutableListOf<Job>()
     private val lastBuzzByApp = HashMap<String, Long>()
 
@@ -342,21 +342,24 @@ class Engine(private val app: Context) {
             // A buzz that lost the Air to Google Health is tried again a little later rather than dropped, for up to
             // 30 s for a message, unless the message was seen on the phone meanwhile (Davor left the choice to the app
             // thread on 11 Nov: a late buzz beats a missed one, but not for something already read).
-            val retry = failed && !job.seen && SystemClock.elapsedRealtime() + RETRY_MS < job.giveUpAt
+            // A call the Air didn't answer at all is tried again almost at once: nothing was taken from Google Health,
+            // and on 12 Nov the 5 s wait put a ringing call's first buzz at 14.3 s.
+            val wait = if (r.bandSilent && job.ringKey != null) SILENT_RING_RETRY_MS else RETRY_MS
+            val retry = failed && !job.seen && SystemClock.elapsedRealtime() + wait < job.giveUpAt
             bandState.value = bandState.value.copy(
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
                 lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
             )
             if (retry) {
-                note("${r.message} Trying again in ${RETRY_MS / 1000} s")
+                note("${r.message} Trying again in ${seconds(wait)}")
                 waiting += job
                 main.postDelayed({
                     if (waiting.remove(job)) {
                         if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
                         pump()
                     }
-                }, RETRY_MS)
+                }, wait)
             } else if (failed && job.seen) {
                 note("Not retrying: the message was seen on the phone")
                 job.done(seen())
@@ -504,6 +507,8 @@ class Engine(private val app: Context) {
     companion object {
         const val TAG = "AirBuzz"
         const val RETRY_MS = 5_000L
+        /** The wait before a call's next try when the Air answered nothing on the last one. */
+        const val SILENT_RING_RETRY_MS = 1_000L
         /** A message buzz is worth up to half a minute late; after that it is logged as failed. */
         const val MESSAGE_RETRY_FOR_MS = 30_000L
         /** A call keeps trying for as long as AirBuzz would ring it, unless it ends first. */
