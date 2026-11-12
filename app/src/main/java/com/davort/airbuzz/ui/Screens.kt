@@ -183,6 +183,7 @@ val Licences = listOf(
     Licence("fitbit-air", "MIT", listOf("Licence" to "licenses/fitbit-air-MIT.txt")),
     Licence("libphonenumber", "Apache-2.0", listOf("Licence" to APACHE)),
     Licence("AndroidX, Compose, RxJava", "Apache-2.0", listOf("Licence" to APACHE)),
+    Licence("OkHttp, Okio, Timber, RxAndroid, AndroidX Annotation", "Apache-2.0", listOf("Licence" to APACHE)),
     Licence("Google Sans Flex, Google Sans Code", "SIL OFL 1.1",
         listOf("Google Sans Flex" to "licenses/GoogleSansFlex-OFL.txt", "Google Sans Code" to "licenses/GoogleSansCode-OFL.txt")),
     Licence("Instrument Serif", "SIL OFL 1.1", listOf("Licence" to "licenses/InstrumentSerif-OFL.txt")),
@@ -244,8 +245,8 @@ fun LicencesScreen(open: (Int) -> Unit, onBack: () -> Unit) {
         ScreenBar("Licences", onBack = onBack)
         Text("AirBuzz is free software under GPL-3.0. It builds on the work below, each under its own licence.", style = Type.small, color = a.muted)
         Group((0..1).map(row))
-        Group((2..7).map(row))
-        Group((8..10).map(row))
+        Group((2..8).map(row))
+        Group((9..11).map(row))
     }
 }
 

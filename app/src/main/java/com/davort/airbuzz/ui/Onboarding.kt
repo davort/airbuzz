@@ -187,7 +187,8 @@ private fun Done(text: String) {
 @Composable
 private fun CheckRow(title: String, label: String, end: @Composable () -> Unit) {
     GroupRow(vertical = 12.dp) {
-        TwoLine(title, Modifier.weight(1f)) { Label(label) }
+        // The label may wrap: "Motorola · AirBuzz can't check" is wider than a 360 dp phone leaves beside the button.
+        TwoLine(title, Modifier.weight(1f)) { Text(label.uppercase(), style = Type.label, color = LocalAirColors.current.muted) }
         end()
     }
 }
@@ -248,7 +249,7 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
             { CheckRow("Link your Fitbit Air", "Android asks once") {
                 if (linked) Done("Linked") else Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
             } },
-            { CheckRow("Allow background activity", "${Setup.maker} · AirBuzz can't check") {
+            { CheckRow("Allow background activity", "${Setup.maker} · AirBuzz\u00A0can't\u00A0check") {
                 if (opened) Done("Opened") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, filled = false, small = true)
             } },
         ))
