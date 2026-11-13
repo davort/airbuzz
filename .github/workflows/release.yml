@@ -1,9 +1,9 @@
 # Builds a release when a version tag such as v0.7.0 is pushed: the unit tests, an APK signed with the app signing key
-# ("airbuzz") for GitHub, and a bundle signed with the Play upload key ("upload") for Google Play. The APK, its SHA-256
+# ("airbuzz") for GitHub, and a bundle for Google Play signed with the same key. The APK, its SHA-256
 # and the signing certificate's SHA-256 go on a draft GitHub Release; the bundle is kept as a workflow artifact.
 #
-# Secrets: AIRBUZZ_KEYSTORE_B64 (a base64 PKCS12 keystore with the entries "airbuzz" and "upload") and
-# AIRBUZZ_KEYSTORE_PASSWORD (for the store and both entries).
+# Secrets: AIRBUZZ_KEYSTORE_B64 (a base64 PKCS12 keystore with the entry "airbuzz") and
+# AIRBUZZ_KEYSTORE_PASSWORD (for the store and its entries).
 name: Release
 
 on:
@@ -73,8 +73,10 @@ jobs:
       - name: APK signed with the app signing key
         run: AIRBUZZ_KEY_ALIAS=airbuzz ./gradlew :app:assembleRelease
 
-      - name: Bundle signed with the upload key
-        run: AIRBUZZ_KEY_ALIAS=upload ./gradlew :app:bundleRelease
+      # Play Console registered "airbuzz" as both the app signing key and the upload key (12 Nov), so a bundle signed
+      # with any other key is rejected.
+      - name: Bundle signed with the app signing key
+        run: AIRBUZZ_KEY_ALIAS=airbuzz ./gradlew :app:bundleRelease
 
       - name: Release files
         run: |

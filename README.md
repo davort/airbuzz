@@ -45,6 +45,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.6.16** (versionCode 38): segmented buttons (Chosen/Contacts/Anyone, Gentle/Strong, the Activity filter) keep every label centred and still. The check hangs to the left of the selected label without pushing it, and fades in with the fill over 150 ms (#5).
 - **0.6.17** (versionCode 39): segmented buttons drop the check; the selected one is filled and its label turns from muted to ink, same weight, so no label moves (Davor found the check too close to the edge). When a picker sheet changes height at once, such as Chosen to Contacts, it glides to its new height over 300 ms instead of jumping.
 - **0.6.18** (versionCode 40): About has a Terms of use row, under Privacy policy, that opens `TERMS.md` on GitHub ("Free and provided as is").
+- **0.6.19** (versionCode 41): the Google Play bundle is signed with the same `airbuzz` key as the GitHub APK. Play Console registered that key as both the app signing key and the upload key, so it would have rejected 0.6.11's bundle, which was signed with a separate `upload` key. The app itself is unchanged.
 
 ## What it does
 
@@ -83,7 +84,7 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # Android SDK with NDK 27.2.12
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Releases: push a tag `v<versionName>`, such as `v0.7.0`. GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds an APK signed with the app signing key and a Play bundle signed with the upload key, and puts the APK, its SHA-256 and the signing certificate's SHA-256 on a draft GitHub Release. The keys come from the `AIRBUZZ_KEYSTORE_B64` and `AIRBUZZ_KEYSTORE_PASSWORD` secrets; without them, `app/build.gradle.kts` builds exactly as before.
+Releases: push a tag `v<versionName>`, such as `v0.7.0`. GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds an APK signed with the app signing key and a Play bundle signed with the same key (Play Console has it as both the app signing and the upload key), and puts the APK, its SHA-256 and the signing certificate's SHA-256 on a draft GitHub Release. The keys come from the `AIRBUZZ_KEYSTORE_B64` and `AIRBUZZ_KEYSTORE_PASSWORD` secrets; without them, `app/build.gradle.kts` builds exactly as before.
 
 ## Licence
 

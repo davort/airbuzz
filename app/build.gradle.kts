@@ -6,7 +6,7 @@ plugins {
 
 // Release signing comes from the environment, so no key is ever in the repo. GitHub Actions sets AIRBUZZ_KEYSTORE (a
 // PKCS12 file), AIRBUZZ_KEYSTORE_PASSWORD (for the store and every entry) and AIRBUZZ_KEY_ALIAS: "airbuzz", the app
-// signing key, for the APK, or "upload", the Play upload key, for the bundle. Without them a release build is unsigned
+// signing key, which Play also takes as the upload key, for both the APK and the bundle. Without them a release build is unsigned
 // and debug builds are signed with the machine's debug key, as before.
 val releaseKeystore: File? = System.getenv("AIRBUZZ_KEYSTORE")?.takeIf { it.isNotBlank() }?.let(::file)
 
@@ -26,8 +26,8 @@ android {
         applicationId = "com.davort.airbuzz"
         minSdk = 28
         targetSdk = 36
-        versionCode = 40
-        versionName = "0.6.18"
+        versionCode = 41
+        versionName = "0.6.19"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     signingConfigs {
