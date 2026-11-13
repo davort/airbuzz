@@ -47,6 +47,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 - **0.6.18** (versionCode 40): About has a Terms of use row, under Privacy policy, that opens `TERMS.md` on GitHub ("Free and provided as is").
 - **0.6.19** (versionCode 41): the Google Play bundle is signed with the same `airbuzz` key as the GitHub APK. Play Console registered that key as both the app signing key and the upload key, so it would have rejected 0.6.11's bundle, which was signed with a separate `upload` key. The app itself is unchanged.
 - **0.6.20** (versionCode 42): AirBuzz tells when Google Health is syncing with the Fitbit Air, from the burst of about 24 kB it sends about every 15 minutes, so the Air shelf can show it (the engine's `healthSyncing`; the shelf itself is design work). The step log says when each sync ended and its size, and a buzz's steps line says when it started during one. An open link that has heard nothing for 20 minutes subscribes again: on 13 Nov it went deaf for over an hour after three link drops while Google Health kept syncing.
+- **0.6.21** (versionCode 43): while Google Health syncs with the Fitbit Air, the Air shelf shows a grey sync icon, "Google Health is syncing" and "Buzzes may wait up to 6 s", as information with no warning colour (brief decision 33). Any problem (Bluetooth off, out of reach, can't see alerts) wins over it, and it shows only while AirBuzz is on and has reached the Air.
 
 ## What it does
 

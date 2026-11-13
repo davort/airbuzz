@@ -454,6 +454,8 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     }
     AirShelf(
         problem.takeIf { s.enabled }, live,
+        // Google Health's sync is information, not a problem (decision 33), so any problem wins over it.
+        band.healthSyncing && live,
         if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
         missed,
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
@@ -465,10 +467,11 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
  * The card floating at the bottom of Home (decision 33): it opens Settings, and carries the one problem when something
  * breaks, at the same height. The dot is green only while AirBuzz is on and has reached the Air. Light mode casts a
  * neutral shadow; dark mode glows in the accent, or in warn for a problem. When a problem arrives, its icon and words
- * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40).
+ * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40). While Google Health
+ * syncs with the Air and nothing is wrong, a grey sync icon says buzzes may wait, with no warn colour and no fix.
  */
 @Composable
-fun AirShelf(problem: Problem?, live: Boolean, reached: String, missed: String? = null, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
+fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String, missed: String? = null, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(24.dp)
     val swap = tween<Color>(220, easing = Motion.Out)
@@ -501,14 +504,18 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, missed: String? 
         contentAlignment = Alignment.CenterStart,
     ) {
         val rise = with(LocalDensity.current) { 8.dp.roundToPx() }
-        AnimatedContent(problem, contentKey = { it?.title }, label = "shelf", transitionSpec = {
+        AnimatedContent(problem to (syncing && problem == null), contentKey = { (p, sync) -> p?.title ?: sync }, label = "shelf", transitionSpec = {
             (fadeIn(tween(220, easing = Motion.Out)) + slideInVertically(tween(220, easing = Motion.Out)) { rise }) togetherWith
                 (fadeOut(tween(150, easing = Motion.In)) + slideOutVertically(tween(150, easing = Motion.In)) { -rise })
-        }) { shown ->
+        }) { (shown, sync) ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (shown != null) {
                     Box(Modifier.size(40.dp).clip(CircleShape).background(a.warnTint), contentAlignment = Alignment.Center) {
                         CurveIcon(shown.icon, 22.dp, a.warn, 1.8f)
+                    }
+                } else if (sync) {
+                    Box(Modifier.size(40.dp).clip(CircleShape).background(a.line), contentAlignment = Alignment.Center) {
+                        CurveIcon(Curve.SYNC, 22.dp, a.muted, 1.8f)
                     }
                 } else {
                     Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
@@ -519,10 +526,10 @@ fun AirShelf(problem: Problem?, live: Boolean, reached: String, missed: String? 
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(shown?.title ?: "Your Fitbit Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shown?.title ?: if (sync) "Google Health is syncing" else "Your Fitbit Air", style = Type.bodyMedium, color = a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
                     if (shown != null && missed != null) Label(missed, color = a.warn)
-                    else if (shown != null) Text(shown.detail, style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (shown != null || sync) Text(shown?.detail ?: "Buzzes may wait up to 6 s", style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else Label(reached)
                 }
                 if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)
