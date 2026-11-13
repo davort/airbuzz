@@ -9,6 +9,7 @@ Davor owns this; it is his first Android project, so explain Android steps he mu
 - Keep `THIRD_PARTY_NOTICES.md` current when adding code or assets from elsewhere. The band layer follows the MIT fitbit-air library; keep its notice.
 - Nothing involving Bluetooth, the band, permissions, background running, notifications, calls, or how a screen looks on his phone is verified until it has run on his phone: an OPPO Find X9 Pro (CPH2791) on ColorOS 17, Android 17 (checked over adb on 11 Nov 2026). Orbs cannot run an Android emulator. Name what still needs the phone when you report.
 - Record hardware results in `davort/airbuzz-research` `research/README.md` under "Confirmed on hardware".
+- Uninstalling AirBuzz, clearing its data, or switching between debug and release signing deletes the step log and the settings. Before any step that does, make "Settings → Share log, and send it" the step right before it, not a note after the list. On 13 Nov a day of log was lost that way.
 
 ## Who changes what
 
