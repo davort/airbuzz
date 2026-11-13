@@ -121,6 +121,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
          * read: it offers no battery level among its 8 services (12 Nov).
          */
         const val BATTERY_EVERY_MS = 60 * 60_000L
+        /**
+         * An open link that hears nothing this long is subscribed again. Google Health syncs about every 15 minutes, and
+         * on 13 Nov the open link heard nothing for over an hour after three drops while Google Health kept syncing;
+         * the next subscription, at a call, brought its packets back.
+         */
+        const val DEAF_MS = 20 * 60_000L
+        const val DEAF_CHECK_MS = 60_000L
+        /** While Google Health syncs, [SyncWatch] is checked this often, because a sync ends with no packet to say so. */
+        const val SYNC_CHECK_MS = 2_000L
     }
 
     /** Refuses every PSK, so the band's next handshake fails and it resets its Gattlink session. */
@@ -204,6 +213,34 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Called on the main thread each time the running command reaches a phase. */
     var onPhase: () -> Unit = {}
 
+    /** Called on the main thread when Google Health starts (true) or stops (false) syncing, as [SyncWatch] judges it. */
+    var onHealthSync: (Boolean) -> Unit = {}
+
+    private val syncWatch = SyncWatch()
+    private val syncCheck = object : Runnable {
+        override fun run() {
+            if (syncWatch.update(SystemClock.elapsedRealtime())) syncEnded()
+            else if (syncWatch.syncing) main.postDelayed(this, SYNC_CHECK_MS)
+        }
+    }
+    private var lastRxAt = 0L
+    private val deafCheck = object : Runnable {
+        override fun run() {
+            val g = gatt
+            if (!linkUp || warming || g == null) return
+            val now = SystemClock.elapsedRealtime()
+            val quietFor = now - maxOf(lastRxAt, linkReadyAt)
+            if (!busy && quietFor >= DEAF_MS) {
+                log("Open link: heard nothing for ${quietFor / 60_000} min; subscribing again")
+                lastRxAt = now
+                if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel again.")
+            }
+            main.postDelayed(this, DEAF_CHECK_MS)
+        }
+    }
+    /** Google Health was syncing when the running command started, for its steps line. */
+    private var duringSync = false
+
     fun findBondedAir(): BluetoothDevice? {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return null
         return try {
@@ -233,6 +270,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         handshakeAttempts = 0
         sessionStarted = false
         quietPackets = 0
+        duringSync = syncWatch.syncing
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
         main.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS)
         val open = gatt
@@ -363,6 +401,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             if (d.uuid != CCCD) return@onMain
             if (status != BluetoothGatt.GATT_SUCCESS) return@onMain linkFailed("Tracker subscription failed (status $status).")
             warmDelay = WARM_RETRY_MS
+            main.removeCallbacks(deafCheck)
+            main.postDelayed(deafCheck, DEAF_CHECK_MS)
             if (!busy) {
                 if (warming) {
                     warming = false
@@ -403,7 +443,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val now = SystemClock.elapsedRealtime()
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
-        if (rxSource != null) { sessionRx++; heardBand = true } else traffic.record(now, packet.size)?.let(log)
+        lastRxAt = now
+        if (rxSource != null) { sessionRx++; heardBand = true } else {
+            traffic.record(now, packet.size)?.let(log)
+            if (syncWatch.record(now, packet.size)) {
+                onHealthSync(true)
+                main.removeCallbacks(syncCheck)
+                main.postDelayed(syncCheck, SYNC_CHECK_MS)
+            }
+        }
         if (silentSince != 0L) {
             log("The Fitbit Air is sending again, ${(now - silentSince) / 1000} s after it stopped answering")
             silentSince = 0L
@@ -686,6 +734,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         append(phases.entries.joinToString(", ") { "${it.key} ${it.value} ms" }.ifEmpty { "none" })
         append("; $handshakeAttempts handshake${if (handshakeAttempts == 1) "" else "s"}, $wrongKeys wrong key${if (wrongKeys == 1) "" else "s"}, ")
         append("$lostRaces lost race${if (lostRaces == 1) "" else "s"}; $quietPackets packets heard while waiting for quiet")
+        if (duringSync) append("; started during a Google Health sync")
     }
 
     /** Rebuilds the stack with a resolver that refuses every key and waits for the band to resend its Gattlink session. */
@@ -738,8 +787,16 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         linkBoosted = false
     }
 
+    private fun syncEnded() {
+        main.removeCallbacks(syncCheck)
+        log(String.format(Locale.ROOT, "Google Health sync ended: %.1f kB in %d s", syncWatch.lastBytes / 1000.0, syncWatch.lastMs / 1000))
+        onHealthSync(false)
+    }
+
     private fun closeTransport() {
         traffic.close(SystemClock.elapsedRealtime())?.let(log)
+        main.removeCallbacks(deafCheck)
+        if (syncWatch.stop(SystemClock.elapsedRealtime())) syncEnded()
         handshakeDeadline?.let(main::removeCallbacks)
         handshakeDeadline = null
         silenceCheck?.let(main::removeCallbacks)
@@ -783,6 +840,70 @@ class QuietWait(private val startedAt: Long) {
         while (recent.isNotEmpty() && now - recent.first().first > 1_200) recent.removeFirst()
         val busy = recent.sumOf { it.second } >= 400
         return busy || elapsed < 700
+    }
+}
+
+/**
+ * Tells when Google Health is syncing with the Air, from its traffic on the open link, for the Air shelf's "Google
+ * Health is syncing" state (brief decision 33). On Davor's Air (12–13 Nov) a sync was one burst of 18–29 kB, mostly
+ * within 10 s, about every 15 minutes, while between syncs the busiest 10 s carried at most 1.3 kB. A sync starts when
+ * the last [WINDOW_MS] carry [START_BYTES] and ends once they carry under [END_BYTES], so it ends about 10 s after its
+ * burst. It can't see a sync the link doesn't hear, such as on a link that has gone deaf (see AirBand.DEAF_MS).
+ */
+class SyncWatch {
+    private val recent = ArrayDeque<Pair<Long, Int>>()
+    private var startedAt = 0L
+    private var bytes = 0L
+
+    var syncing = false
+        private set
+    /** Bytes in the last [WINDOW_MS] as of the last call. */
+    var windowBytes = 0
+        private set
+    /** The last sync's bytes and length, once it ended. */
+    var lastBytes = 0L
+        private set
+    var lastMs = 0L
+        private set
+
+    /** Counts a packet; true when a sync starts with it. */
+    fun record(now: Long, size: Int): Boolean {
+        recent.addLast(now to size)
+        if (syncing) bytes += size
+        trim(now)
+        if (syncing || windowBytes < START_BYTES) return false
+        syncing = true
+        startedAt = recent.first().first
+        bytes = windowBytes.toLong()
+        return true
+    }
+
+    /** True when the sync ends at [now] because the window has gone quiet. */
+    fun update(now: Long): Boolean {
+        trim(now)
+        return syncing && windowBytes < END_BYTES && stop(now)
+    }
+
+    /** Ends a sync without waiting, as when the link closes; true if one was running. */
+    fun stop(now: Long): Boolean {
+        if (!syncing) { recent.clear(); windowBytes = 0; return false }
+        syncing = false
+        lastBytes = bytes
+        lastMs = now - startedAt
+        recent.clear()
+        windowBytes = 0
+        return true
+    }
+
+    private fun trim(now: Long) {
+        while (recent.isNotEmpty() && now - recent.first().first >= WINDOW_MS) recent.removeFirst()
+        windowBytes = recent.sumOf { it.second }
+    }
+
+    companion object {
+        const val WINDOW_MS = 10_000L
+        const val START_BYTES = 3_000
+        const val END_BYTES = 1_000
     }
 }
 

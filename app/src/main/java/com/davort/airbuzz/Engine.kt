@@ -114,6 +114,12 @@ data class BandState(
     val missed: Int = 0,
     /** Wall-clock time the current problem started (Bluetooth off, or the first missed alert); null when there is none. */
     val problemSince: Long? = null,
+    /**
+     * Google Health is syncing with the Air, judged from its traffic on the open link, so a buzz may take up to about
+     * 6 s (brief decisions 16 and 33). A sync lasts about 10–20 s and comes about every 15 minutes. Always false while
+     * AirBuzz is off or the link is closed.
+     */
+    val healthSyncing: Boolean = false,
 )
 
 /** A Test buzz in progress or finished. */
@@ -137,7 +143,10 @@ class Engine(private val app: Context) {
     /** AirBuzz's own step log, shared from Settings. */
     val debug = DebugLog(java.io.File(app.filesDir, "debug.log"))
     private val main = Handler(Looper.getMainLooper())
-    private val band = AirBand(app) { line -> note(line); testLine(line) }.also { it.onPhase = { testPhases() } }
+    private val band = AirBand(app) { line -> note(line); testLine(line) }.also {
+        it.onPhase = { testPhases() }
+        it.onHealthSync = { syncing -> bandState.value = bandState.value.copy(healthSyncing = syncing) }
+    }
 
     private val bandState = MutableStateFlow(BandState())
     val state: StateFlow<BandState> = bandState
