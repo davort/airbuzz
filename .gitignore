@@ -5,3 +5,6 @@ local.properties
 *.iml
 .idea/
 .kotlin/
+
+# Store screenshots stay local until their captions are done (#9).
+store/screenshots/

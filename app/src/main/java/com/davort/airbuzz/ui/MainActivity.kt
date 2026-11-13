@@ -415,8 +415,17 @@ fun summarizeQuiet(rules: List<String>) = when (rules.size) {
 /** One problem on the Air shelf and its one fix (principle 5); a null [fix] opens Setup. */
 data class Problem(val title: String, val detail: String, val action: String, val icon: Curve, val fix: Fix?)
 
+/**
+ * Debug builds only: `store/screenshots.sh` creates `files/store-demo`, so Home shows a working Fitbit Air on an emulator
+ * that has none. Release builds never look.
+ */
+fun storeDemo(context: android.content.Context) =
+    context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+        java.io.File(context.filesDir, "store-demo").exists()
+
 /** The first thing stopping AirBuzz, in the order it must be fixed. */
 fun firstProblem(context: android.content.Context, lastError: String?, reached: Long?): Problem? = when {
+    storeDemo(context) -> null
     !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Fitbit Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
     !Setup.hasNearby(context) -> Problem("Can't use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
     Setup.bondedAirAddress(context) == null -> Problem("No Fitbit Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
