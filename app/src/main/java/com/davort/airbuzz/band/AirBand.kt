@@ -231,13 +231,27 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             val now = SystemClock.elapsedRealtime()
             val quietFor = now - maxOf(lastRxAt, linkReadyAt)
             if (!busy && quietFor >= DEAF_MS) {
+                // The signal strength says whether the radio link is still alive while nothing arrives.
+                g.readRemoteRssi()
+                if (resubscribedAt != 0L && lastRxAt == resubscribedAt) {
+                    // On 13 Nov subscribing again didn't end two deaf spells; a connection of AirBuzz's own is the
+                    // next thing to try. Only AirBuzz's client closes, so Google Health's link to the Air stays up.
+                    log("Open link: still heard nothing ${(now - resubscribedAt) / 60_000} min after subscribing again; connecting afresh")
+                    closeTransport()
+                    warmDelay = WARM_RETRY_MS
+                    warmUp()
+                    return
+                }
                 log("Open link: heard nothing for ${quietFor / 60_000} min; subscribing again")
                 lastRxAt = now
+                resubscribedAt = now
                 if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel again.")
             }
             main.postDelayed(this, DEAF_CHECK_MS)
         }
     }
+    /** When a deaf open link was last subscribed again; 0 when it wasn't, or after the link closed. */
+    private var resubscribedAt = 0L
     /** Google Health was syncing when the running command started, for its steps line. */
     private var duringSync = false
 
@@ -409,6 +423,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     linkReadyAt = SystemClock.elapsedRealtime()
                     log("The link is open")
                     logBattery(linkReadyAt)
+                } else if (resubscribedAt != 0L) {
+                    log("Open link: subscribed again")
                 }
                 return@onMain
             }
@@ -420,6 +436,10 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) = onMain(g) {
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) fail("Tracker write failed (status $status).") else writeNext()
+        }
+
+        override fun onReadRemoteRssi(g: BluetoothGatt, rssi: Int, status: Int) = onMain(g) {
+            log(if (status == BluetoothGatt.GATT_SUCCESS) "Open link: signal $rssi dBm" else "Open link: signal unreadable (status $status)")
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) =
@@ -796,6 +816,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private fun closeTransport() {
         traffic.close(SystemClock.elapsedRealtime())?.let(log)
         main.removeCallbacks(deafCheck)
+        resubscribedAt = 0L
         if (syncWatch.stop(SystemClock.elapsedRealtime())) syncEnded()
         handshakeDeadline?.let(main::removeCallbacks)
         handshakeDeadline = null
