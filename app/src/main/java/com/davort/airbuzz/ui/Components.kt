@@ -331,6 +331,52 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
     }
 }
 
+/**
+ * The Strength choice (#15): two tiles, each with the pebble and its rings. Gentle has one ring at 70%, Strong two
+ * (the outer at 45%). The chosen tile is tinted, outlined and ringed in the accent, with a check; the other is grey.
+ * The pebble has no rim here, in dark mode too (Davor, 14 Nov).
+ */
+@Composable
+fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(false to "Gentle", true to "Strong").forEach { (value, label) ->
+            val on = value == strong
+            val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "strength")
+            val shape = RoundedCornerShape(16.dp)
+            val ring = lerp(a.muted, a.accent, shown)
+            Box(
+                Modifier.weight(1f).clip(shape).background(a.tint.copy(alpha = a.tint.alpha * shown))
+                    .border((1f + 0.5f * shown).dp, lerp(a.outline, a.accent, shown), shape)
+                    .selectable(on, role = Role.RadioButton) { onSelect(value) },
+            ) {
+                Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 34.dp, bottom = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Drawn on the Paper frame's 114 × 74 grid, shown at 74 × 48 dp.
+                    Canvas(Modifier.size(74.dp, 48.dp)) {
+                        val u = size.width / 114f
+                        fun capsule(inset: Float, color: Color, stroke: Float) = drawRoundRect(color, Offset(inset * u, inset * u),
+                            Size((114 - 2 * inset) * u, (74 - 2 * inset) * u), CornerRadius((37 - inset) * u), style = Stroke(stroke * u))
+                        if (value) { capsule(8f, ring, 2.6f); capsule(1.2f, ring.copy(alpha = 0.45f), 2.4f) }
+                        else capsule(8f, ring.copy(alpha = 0.7f), 2.4f)
+                        drawRoundRect(Pebble, Offset(17 * u, 17 * u), Size(80 * u, 40 * u), CornerRadius(20 * u))
+                        drawLine(Color(0xFF3A3C40), Offset(29 * u, 25.8f * u), Offset(69 * u, 25.8f * u), 3 * u, StrokeCap.Round)
+                    }
+                    Text(label, style = Type.bodyMedium, color = lerp(a.ink, a.heading, shown), maxLines = 1, softWrap = false)
+                }
+                Canvas(Modifier.align(Alignment.TopEnd).padding(10.dp).size(22.dp)) {
+                    val u = size.width / 22f
+                    drawCircle(a.outline.copy(alpha = a.outline.alpha * (1f - shown)), 10.25f * u, style = Stroke(1.5f * u))
+                    drawCircle(a.accent.copy(alpha = shown), 11 * u)
+                    val tick = Path().apply { moveTo(6.5f * u, 11.3f * u); relativeLineTo(3 * u, 3 * u); relativeLineTo(6 * u, -6.3f * u) }
+                    drawPath(tick, (if (a.dark) a.bg else Color.White).copy(alpha = shown),
+                        style = Stroke(2 * u, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                }
+            }
+        }
+    }
+}
+
 /** Pill button: filled in ink, or outlined. Large is 56 dp, small 40 dp. */
 @Composable
 fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = true, small: Boolean = false, enabled: Boolean = true) {
