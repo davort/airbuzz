@@ -65,6 +65,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davort.airbuzz.Engine
 import com.davort.airbuzz.band.BandResult
@@ -392,19 +395,25 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     }
     var didNotFeel by remember { mutableStateOf(false) }
     val steps = testSteps(r, buzzedMs, run?.phases.orEmpty(), run?.link)
+    val grade = buzzedMs?.let(::gradeOf)
+    // A slow tap still worked, so its number is ink, not warn (issue #13).
+    val tapColor = if (grade == Grade.SLOW) a.ink else a.accent
 
-    Page {
+    Page(gap = 24.dp) {
         ScreenBar("Test buzz", onBack = onBack)
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The capsule twitches on the tap: two 1.5 dp wobbles.
             val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 4f * Math.PI.toFloat()) * with(LocalDensity.current) { 1.5.dp.toPx() } else 0f
-            AirPebble(96.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
-                if (buzzedMs != null) "Your Fitbit Air buzzed" else if (connecting) "Connecting to your Fitbit Air" else "Your Fitbit Air", wave.value)
-            HGap(32)
+            // Room for the rings, which reach 18 dp past the capsule, so they stay inside the page margin.
+            Box(Modifier.padding(18.dp)) {
+                AirPebble(80.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
+                    if (buzzedMs != null) "Your Fitbit Air buzzed" else if (connecting) "Connecting to your Fitbit Air" else "Your Fitbit Air", wave.value)
+            }
+            HGap(12)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Label("Time to tap")
                 val (time, color) = when {
-                    buzzedMs != null -> seconds(buzzedMs).removeSuffix(" s") to a.accent
+                    buzzedMs != null -> seconds(buzzedMs).removeSuffix(" s") to tapColor
                     connecting -> seconds(elapsed).removeSuffix(" s") to a.ink
                     failed -> seconds(r?.totalMs).removeSuffix(" s") to a.warn
                     else -> "0.0" to a.muted
@@ -415,8 +424,7 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
                     Text("s", style = Type.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(400)), color = color, modifier = Modifier.padding(bottom = 8.dp))
                 }
                 when {
-                    buzzedMs != null && r == null -> Label("Buzzing now", color = a.accent)
-                    buzzedMs != null -> Label("Tapped ${tapsWord(r?.taps ?: 1)}", color = a.accent)
+                    grade != null -> Label("${grade.word} · tapped ${tapsWord(r?.taps ?: 1)}", color = tapColor)
                     connecting -> Label("Connecting")
                     failed -> Label("No tap", color = a.warn)
                     else -> Label("Ready")
@@ -424,10 +432,10 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
             }
         }
         Text(when {
-            buzzedMs != null -> "Your Fitbit Air tapped ${seconds(buzzedMs)} after you pressed Test."
+            grade != null -> "Your Fitbit Air tapped ${seconds(buzzedMs)} after you pressed Test. ${grade.sentence}"
             connecting -> "Connecting to your Fitbit Air…"
             failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
-            else -> "Press Test to tap your Fitbit Air once and see how long it takes. The target is 3 s."
+            else -> "Press Test to tap your Fitbit Air once and see how long it takes. Under 3 s is excellent, under 5 s is good."
         }, style = Type.body, color = a.ink)
         Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
         StepList(steps, if (connecting) elapsed else null)
@@ -440,17 +448,19 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
                 Pill("Try again", { engine.clearTest(); engine.testBuzz() }, Modifier.weight(1f))
                 Pill("Share log", { shareLog(context, engine) }, Modifier.weight(1f), filled = false)
             }
-            r != null && !didNotFeel -> {
+            // Ask as soon as the tap lands; the hand-off to Google Health that follows takes up to a few seconds (issue #12).
+            (buzzedMs != null || r != null) && !didNotFeel -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Did your Fitbit Air buzz?", style = Type.bodyMedium, color = a.ink)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Pill("Yes", onBack, Modifier.weight(1f))
                     Pill("No", { didNotFeel = true }, Modifier.weight(1f), filled = false)
                 }
             }
-            r != null -> {
+            buzzedMs != null || r != null -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("The Fitbit Air confirmed the tap, so its motor was asked to run. Try Strong in Settings, and check the band is snug on your wrist.",
                     style = Type.small, color = a.muted)
-                Pill("Test again", { didNotFeel = false; engine.clearTest(); engine.testBuzz() }, Modifier.fillMaxWidth())
+                // A new test can start only once the hand-off has finished and the result is in.
+                Pill("Test again", { didNotFeel = false; engine.clearTest(); engine.testBuzz() }, Modifier.fillMaxWidth(), enabled = r != null)
             }
             else -> Pill("Test", { engine.testBuzz() }, Modifier.fillMaxWidth())
         }
@@ -476,7 +486,7 @@ fun StepList(steps: List<Step>, liveMs: Long?) {
                 else -> a.context
             }
             if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(a.line))
-            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(width = 3.dp, height = 14.dp).clip(RoundedCornerShape(1.dp)).background(mark))
                 HGap(14)
                 Text(st.name, style = Type.body, color = if (done || i == current || st.bad) a.ink else a.muted, modifier = Modifier.weight(1f))
@@ -497,16 +507,34 @@ fun shareLog(context: android.content.Context, engine: Engine) {
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share log"))
 }
 
-/** 0–8 s at 1/8 of the width per second, with the 3 s target shaded and the steps drawn as fading ink. */
+/** Test buzz's grade for a time to tap (issue #13), judged on the tenth of a second the screen shows. */
+enum class Grade(val word: String, val sentence: String) {
+    EXCELLENT("Excellent", "Under 3 s is excellent."),
+    GOOD("Good", "Under 5 s is good; under 3 s is excellent."),
+    SLOW("Slow", "That's slower than usual. The first buzz after a while takes longest, so test again."),
+}
+
+fun gradeOf(ms: Long): Grade {
+    val shown = (ms + 50) / 100 * 100
+    return when { shown <= 3000 -> Grade.EXCELLENT; shown <= 5000 -> Grade.GOOD; else -> Grade.SLOW }
+}
+
+/**
+ * 0–8 s at 1/8 of the width per second, with the Excellent (to 3 s) and Good (to 5 s) bands shaded, the steps drawn as
+ * fading ink, and Tap sent in the accent up to the tap mark (issue #14). The axis shows only each second's number,
+ * centred under its tick; the grade is said above it.
+ */
 @Composable
 fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
     val a = LocalAirColors.current
-    BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp)) {
-        val width = maxWidth
+    Box(Modifier.fillMaxWidth().height(48.dp)) {
         Canvas(Modifier.fillMaxWidth().height(28.dp)) {
             val w = size.width
             fun x(ms: Long) = (ms / 8000f).coerceIn(0f, 1f) * w
-            drawRoundRect(a.tint, Offset(0f, 4.dp.toPx()), Size(x(3000), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
+            // Light mode needs the stronger pair to show both bands on its pale background.
+            val (excellent, good) = if (a.dark) a.tint to a.tint.copy(alpha = 0.5f) else a.tintPressed to a.tint
+            drawRoundRect(excellent, Offset(0f, 4.dp.toPx()), Size(x(3000), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
+            drawRoundRect(good, Offset(x(3000), 4.dp.toPx()), Size(x(5000) - x(3000), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
             drawRect(a.line, Offset(0f, 11.dp.toPx()), Size(w, 2.dp.toPx()))
             if (liveMs != null) {
                 drawRect(a.ink, Offset(0f, 9.dp.toPx()), Size(x(liveMs), 6.dp.toPx()))
@@ -517,13 +545,20 @@ fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
                     if (to > from) drawRect(a.ink.copy(alpha = listOf(1f, 0.6f, 0.35f)[i]), Offset(x(from), 9.dp.toPx()), Size(x(to) - x(from), 6.dp.toPx()))
                     from = to
                 }
+                if (!failed && endMs != null && endMs > from) drawRect(a.accent, Offset(x(from), 9.dp.toPx()), Size(x(endMs) - x(from), 6.dp.toPx()))
             }
             for (s in 0..8) drawRect(a.muted, Offset((x(s * 1000L)).coerceAtMost(w - 1.dp.toPx()), 22.dp.toPx()), Size(1.dp.toPx(), 5.dp.toPx()))
             endMs?.let { drawRect(if (failed) a.warn else a.accent, Offset(x(it).coerceAtMost(w - 2.dp.toPx()), 0f), Size(2.dp.toPx(), 24.dp.toPx())) }
         }
-        Label("0", Modifier.offset(y = 30.dp))
-        Label("Target 3 s", Modifier.offset(x = width * 3 / 8 - 46.dp, y = 30.dp))
-        Label("8 s", Modifier.align(Alignment.TopEnd).offset(y = 30.dp))
+        Layout({ for (s in 0..8) Label("$s") }, Modifier.fillMaxWidth().offset(y = 30.dp)) { labels, constraints ->
+            val placed = labels.map { it.measure(Constraints()) }
+            val w = constraints.maxWidth.toFloat()
+            val tick = 1.dp.toPx()
+            layout(constraints.maxWidth, placed.maxOf { it.height }) {
+                // The same x the Canvas draws each 1 dp tick at, so the last one stays inside the line.
+                placed.forEachIndexed { s, p -> p.place((minOf(w * s / 8f, w - tick) + tick / 2 - p.width / 2f).roundToInt(), 0) }
+            }
+        }
     }
 }
 

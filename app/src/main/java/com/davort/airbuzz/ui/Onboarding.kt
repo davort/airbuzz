@@ -348,7 +348,7 @@ private fun ColumnScope.FeelIt(engine: Engine) {
         buzzed != null -> "Feel it" to "Your Fitbit Air tapped ${seconds(buzzed)} after you pressed. Did you feel it?"
         connecting -> "Feel it" to "Connecting to your Fitbit Air…"
         failed -> "No tap yet" to "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
-        else -> "Feel it" to "Press Test buzz. Your Fitbit Air should tap within about 3 seconds."
+        else -> "Feel it" to "Press Test buzz. Your Fitbit Air should tap within 3–5 seconds."
     }
     Step({
         when {
