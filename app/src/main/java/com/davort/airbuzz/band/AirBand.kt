@@ -1,6 +1,7 @@
 package com.davort.airbuzz.band
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothDevice.TRANSPORT_LE
 import android.bluetooth.BluetoothGatt
@@ -11,6 +12,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.os.BatteryManager
+import android.os.PowerManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -497,7 +499,13 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (now - batteryAt < BATTERY_EVERY_MS && batteryAt != 0L) return
         batteryAt = now
         val bm = context.getSystemService(BatteryManager::class.java) ?: return
-        log("Battery: phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}; ${openFiles()} files open")
+        // Android's own background setting, to learn whether it follows the phone maker's battery screen (on ColorOS,
+        // Battery usage: Allow background activity, Smart mode, or Restrict) so setup could check it instead of asking.
+        val restricted = Build.VERSION.SDK_INT >= 28 && context.getSystemService(ActivityManager::class.java)?.isBackgroundRestricted == true
+        val unrestricted = context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
+        val background = if (restricted) "restricted" else if (unrestricted) "unrestricted" else "optimised"
+        log("Battery: phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}; " +
+            "background $background; ${openFiles()} files open")
     }
 
     /** How many files and sockets AirBuzz has open, for the step log (see the init block above). */
