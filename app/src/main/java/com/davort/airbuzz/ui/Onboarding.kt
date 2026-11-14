@@ -1,50 +1,45 @@
 package com.davort.airbuzz.ui
 
-import android.Manifest
-import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.Image
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,8 +48,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davort.airbuzz.Engine
 import com.davort.airbuzz.data.Kind
@@ -62,7 +62,10 @@ import com.davort.airbuzz.rules.CallMode
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings
 
-private const val STEPS = 7
+/** The setup steps counted by the stepper. The intro before them and "You're set" after them aren't steps (issue #17). */
+private const val STEPS = 6
+private const val INTRO = 0
+private const val DONE = STEPS + 1
 
 /** Messaging apps offered first on the apps step, when installed. */
 private val MESSENGERS = listOf(
@@ -71,27 +74,40 @@ private val MESSENGERS = listOf(
 )
 
 /**
- * Onboarding (decision 39): seven steps, one ask each, shown on launch until it is finished. Steps 2–4 recheck
- * themselves when AirBuzz comes back from Android's dialogs and settings, as Setup does.
+ * Onboarding (decision 39): an intro, six steps with one ask each, and "You're set", shown on launch until it is
+ * finished. Steps 1–3 recheck themselves when AirBuzz comes back from Android's dialogs and settings, as Setup does.
  */
 @Composable
 fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
-    var step by rememberSaveable { mutableIntStateOf(0) }
-    BackHandler(step > 0) { step-- }
-    val next = { step = (step + 1).coerceAtMost(STEPS - 1) }
+    var page by rememberSaveable { mutableIntStateOf(INTRO) }
+    // Once AirBuzz is on, there is no going back into setup.
+    BackHandler(page in 1..STEPS) { page-- }
+    // AirBuzz is already on at "You're set", so Back finishes setup like its button.
+    BackHandler(page == DONE) { engine.store.update { it.copy(onboarded = true) } }
+    val next = { page = (page + 1).coerceAtMost(DONE) }
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp)) {
-        StepBar(step) { step-- }
+        AnimatedVisibility(page in 1..STEPS, enter = fadeIn(tween(200, easing = Motion.Out)), exit = fadeOut(tween(150, easing = Motion.Out))) {
+            StepBar(page) { page-- }
+        }
         // Steps change like pages (decision 40): Next brings the next one in from the right, Back from the left.
-        AnimatedContent(step, Modifier.weight(1f), label = "step", transitionSpec = { pageChange(targetState > initialState) }) { shown ->
+        // "You're set" is an ending, not a next step, so it fades and settles in place instead.
+        AnimatedContent(page, Modifier.weight(1f), label = "step", transitionSpec = {
+            if (targetState == DONE) ContentTransform(
+                fadeIn(tween(420, 120, Motion.Out)) + scaleIn(tween(520, 120, Motion.Out), initialScale = 0.94f),
+                fadeOut(tween(160, easing = Motion.In)),
+                sizeTransform = null,
+            ) else pageChange(targetState > initialState)
+        }) { shown ->
             Column(Modifier.fillMaxSize()) {
                 when (shown) {
-                    0 -> Welcome(next)
+                    INTRO -> Intro(next)
                     1 -> FindAir(next)
                     2 -> KeepRunning(next)
                     3 -> SeeAlerts(next)
                     4 -> WhoCanRing(engine, s, next)
                     5 -> WhichApps(engine, s, openApps, next)
-                    else -> FeelIt(engine)
+                    6 -> FeelIt(engine, next)
+                    else -> YoureSet(engine, s)
                 }
             }
         }
@@ -102,20 +118,20 @@ fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
 private fun StepBar(step: Int, onBack: () -> Unit) {
     val a = LocalAirColors.current
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(width = 32.dp, height = 48.dp).clickable(step > 0, onClickLabel = "Back", role = Role.Button, onClick = onBack),
+        Box(Modifier.size(width = 32.dp, height = 48.dp).clickable(onClickLabel = "Back", role = Role.Button, onClick = onBack),
             contentAlignment = Alignment.CenterStart) {
-            GlyphIcon(Glyph.BACK, 24.dp, if (step > 0) a.ink else a.context)
+            GlyphIcon(Glyph.BACK, 24.dp, a.ink)
         }
-        Row(Modifier.weight(1f).semantics { contentDescription = "Step ${step + 1} of $STEPS" }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.weight(1f).semantics { contentDescription = "Step $step of $STEPS" }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             repeat(STEPS) { i ->
                 // Each segment fills from its left edge.
-                val fill by animateFloatAsState(if (i <= step) 1f else 0f, tween(240, easing = Motion.Out), label = "segment")
+                val fill by animateFloatAsState(if (i < step) 1f else 0f, tween(240, easing = Motion.Out), label = "segment")
                 Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(a.line)) {
                     Box(Modifier.fillMaxWidth(fill).height(3.dp).background(a.ink))
                 }
             }
         }
-        Label("${step + 1}/$STEPS")
+        Label("$step/$STEPS")
     }
 }
 
@@ -126,7 +142,8 @@ private fun StepHead(title: String, body: String, art: @Composable () -> Unit) {
     Box(Modifier.fillMaxWidth().height(104.dp).padding(bottom = 20.dp), contentAlignment = Alignment.BottomStart) { art() }
     Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = Type.heading, color = a.heading, modifier = Modifier.semantics { heading() })
-        Text(body, style = Type.small, color = a.muted)
+        // Body size, not small: at 14 sp every step looked empty beside the heading and the button (issue #19).
+        Text(body, style = Type.body, color = a.muted)
     }
 }
 
@@ -135,9 +152,9 @@ private fun StepHead(title: String, body: String, art: @Composable () -> Unit) {
  * The body fades out under the progress bar and above the button, as in the sheets.
  */
 @Composable
-private fun ColumnScope.Step(foot: @Composable ColumnScope.() -> Unit, body: @Composable ColumnScope.() -> Unit) {
+private fun ColumnScope.Step(foot: @Composable ColumnScope.() -> Unit, gap: Int = 12, body: @Composable ColumnScope.() -> Unit) {
     val scroll = rememberScrollState()
-    Column(Modifier.weight(1f).fillMaxWidth().edgeFades(scroll, LocalAirColors.current.bg).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.weight(1f).fillMaxWidth().edgeFades(scroll, LocalAirColors.current.bg).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
         body()
         Spacer(Modifier.height(8.dp))
     }
@@ -186,20 +203,44 @@ private fun Done(text: String) {
 @Composable
 private fun CheckRow(title: String, label: String, end: @Composable () -> Unit) {
     GroupRow(vertical = 12.dp) {
-        // The label may wrap: "Motorola · AirBuzz can't check" is wider than a 360 dp phone leaves beside the button.
         TwoLine(title, Modifier.weight(1f)) { Text(label.uppercase(), style = Type.label, color = LocalAirColors.current.muted) }
         end()
     }
 }
 
+/**
+ * The centred page that opens and closes onboarding: the pebble with its rings, a large serif title, one sentence, and
+ * the button at the bottom with an optional note above it. The intro and "You're set" mirror each other (issue #17).
+ */
 @Composable
-private fun ColumnScope.Welcome(next: () -> Unit) {
-    Step({ StepFoot("Start", next) }) {
-        StepHead("Your Fitbit\u00A0Air taps\nfor what matters",
-            "AirBuzz makes your Google Fitbit Air tap for messages from apps you choose, and ring for calls from people you choose. Setup takes about two minutes.") {
-            AirPebble(80.dp, Buzz.TAPPED)
-        }
+private fun ColumnScope.Bookend(title: String, body: String, note: String, button: String, onClick: () -> Unit, wave: Float = 0f, noteIsLabel: Boolean = false) {
+    val a = LocalAirColors.current
+    Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        // The rings reach 18 dp past the capsule.
+        Box(Modifier.padding(18.dp)) { AirPebble(120.dp, Buzz.TAPPED, wave = wave) }
+        Gap(28)
+        Text(title, style = Type.heading.copy(fontSize = 44.sp, lineHeight = 48.sp), color = a.heading, textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() })
+        Gap(12)
+        Text(body, style = Type.body, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.width(300.dp))
     }
+    Spacer(Modifier.height(12.dp))
+    if (noteIsLabel) Label(note, Modifier.align(Alignment.CenterHorizontally))
+    else Text(note, style = Type.small, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+    Gap(12)
+    Pill(button, onClick, Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun ColumnScope.Intro(next: () -> Unit) {
+    Bookend(
+        title = "Your Fitbit\u00A0Air, buzzing for what\u00A0matters",
+        body = "Calls from the people you pick. Messages from the apps you pick. Everything else stays on your phone.",
+        note = "Setup takes about two minutes",
+        button = "Set up AirBuzz",
+        onClick = next,
+        noteIsLabel = true,
+    )
 }
 
 @Composable
@@ -212,7 +253,7 @@ private fun ColumnScope.FindAir(next: () -> Unit) {
     val found = remember(tick) { Setup.bondedAirAddress(context) != null }
     Step({
         when {
-            !nearby -> StepFoot("Allow", { fixer(Fix.NEARBY) })
+            !nearby -> StepFoot("Find my Fitbit\u00A0Air", { fixer(Fix.NEARBY) })
             !on -> StepFoot("Turn on Bluetooth", { fixer(Fix.PAIR) })
             !found -> StepFoot("Open Bluetooth", { fixer(Fix.PAIR) })
             else -> StepFoot("Next", next)
@@ -230,6 +271,10 @@ private fun ColumnScope.FindAir(next: () -> Unit) {
     }
 }
 
+/**
+ * Both rows are real checks with the same filled button (issues #18, #20). Background activity is Android's
+ * battery-optimisation exemption, which App info sets; the path to it is spelled out under the row until it's set.
+ */
 @Composable
 private fun ColumnScope.KeepRunning(next: () -> Unit) {
     val a = LocalAirColors.current
@@ -239,65 +284,110 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
     var opened by rememberSaveable { mutableStateOf(false) }
     val fixer = rememberFixer({}) { error = it }
     val linked = remember(tick) { Setup.isAssociated(context) }
-    // Linking can fail when Android doesn't find the Air; then the step lets you go on and Setup keeps the row.
-    Step({ StepFoot("Next", next, enabled = linked || error != null) }) {
-        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit Air.") {
+    val allowed = remember(tick) { Setup.ignoresBatteryOptimizations(context) }
+    // Linking can fail when Android doesn't find the Air, and a phone may not report the battery setting; then the
+    // step lets you go on (after a visit to the page) and Setup keeps the row.
+    Step({ StepFoot("Next", next, enabled = (linked || error != null) && (allowed || opened)) }) {
+        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit\u00A0Air.") {
             IconCircle(Curve.LINK)
         }
-        Group(listOf(
+        val rows = mutableListOf<@Composable () -> Unit>(
             { CheckRow("Link your Fitbit Air", "Android asks once") {
                 if (linked) Done("Linked") else Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
             } },
-            { CheckRow("Allow background activity", "${Setup.maker} · AirBuzz\u00A0can't\u00A0check") {
-                if (opened) Done("Opened") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, filled = false, small = true)
+            { CheckRow("Allow background activity", if (Setup.isColorOs) "${Setup.maker} · Battery usage" else "${Setup.maker} · Battery") {
+                if (allowed) Done("Allowed") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, small = true)
             } },
-        ))
+        )
+        if (!allowed) rows += { BackgroundPath() }
+        Group(rows)
         error?.let { Text(it, style = Type.small, color = a.warn) }
     }
 }
 
+/** What to tap on the page Open shows. ColorOS's path was checked on Davor's phone; other phones get a general hint. */
+@Composable
+private fun BackgroundPath() {
+    val a = LocalAirColors.current
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("On the page that opens:", style = Type.small, color = a.muted, modifier = Modifier.padding(bottom = 2.dp))
+        val lines = if (Setup.isColorOs) listOf("Tap " to "Battery usage", "Choose " to "Allow background activity", "Tap " to "Allow")
+        else listOf("Tap " to "Battery", "Choose " to "Unrestricted")
+        lines.forEachIndexed { i, (verb, place) ->
+            Row(verticalAlignment = Alignment.Top) {
+                Text("${i + 1}", style = Type.label.copy(lineHeight = Type.small.lineHeight), color = a.muted, modifier = Modifier.width(26.dp))
+                Text(buildAnnotatedString {
+                    append(verb)
+                    withStyle(SpanStyle(fontWeight = FontWeight(500))) { append(place) }
+                }, style = Type.small, color = a.ink)
+            }
+        }
+    }
+}
+
+/**
+ * Notification access, which AirBuzz needs, and AirBuzz's own notifications, asked here with a reason before Android's
+ * dialog instead of without one after the test (issue #25). Only access is required to go on.
+ */
 @Composable
 private fun ColumnScope.SeeAlerts(next: () -> Unit) {
+    val a = LocalAirColors.current
     val context = LocalContext.current
     val tick = rememberResumeTick()
     val fixer = rememberFixer({}) {}
     val on = remember(tick) { Setup.hasListener(context) }
-    Step({ if (on) StepFoot("Next", next) else StepFoot("Open settings", { fixer(Fix.LISTENER) }) }) {
+    val notices = remember(tick) { Setup.hasPostNotifications(context) }
+    Step({ StepFoot("Next", next, enabled = on) }) {
         StepHead("See calls and messages", "AirBuzz reads which app a notification came from and who sent it. It never keeps message text.") {
             IconCircle(Curve.BELL)
         }
-        if (on) Group(listOf({ CheckRow("Notification access", "AirBuzz can see alerts") { Done("On") } }))
-        else AndroidAsks("Android opens Notification access. Turn on AirBuzz, then come back here.")
+        Group(listOf(
+            { CheckRow("Notification access", if (on) "So AirBuzz sees alerts" else "Turn on AirBuzz there") {
+                if (on) Done("On") else Pill("Open", { fixer(Fix.LISTENER) }, small = true)
+            } },
+            { CheckRow("AirBuzz notifications", "When a buzz didn't arrive") {
+                if (notices) Done("On") else Pill("Allow", { fixer(Fix.NOTIFICATIONS) }, small = true)
+            } },
+        ))
+        Text("They tell you when an alert didn't reach your Fitbit Air or Bluetooth is off, and let you silence a call that's ringing it.",
+            style = Type.small, color = a.muted)
     }
 }
 
+/** Worded as a choice being made, not the current state (issue #21); only Chosen has a list (issue #11). */
 @Composable
 private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit) {
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Who can ring your Fitbit\u00A0Air?", "Calls from these people ring until you answer.") {
+        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls buzz it every second until you\u00A0answer.") {
             IconCircle(Curve.PHONE)
         }
         Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
             engine.store.update { it.copy(callMode = m) }
         }
-        val rows = mutableListOf<@Composable () -> Unit>()
-        if (s.people.isEmpty()) rows += { GroupRow(vertical = 12.dp) { Text("Nobody yet", style = Type.body, color = a.muted) } }
-        s.people.forEach { p ->
-            rows += { GroupRow(vertical = 10.dp) {
-                Avatar(p.name)
-                TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
-            } }
+        when (s.callMode) {
+            CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Fitbit Air.", roomy = false, circle = a.surface)
+            CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Fitbit Air. Numbers you haven't saved stay on your phone.", roomy = true, circle = a.surface)
+            CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Fitbit Air, including numbers you haven't saved.", roomy = true, circle = a.surface)
         }
-        rows += { Box(Modifier.padding(horizontal = 20.dp)) { TextAction("Add people", pick) } }
-        Group(rows)
+        if (s.callMode == CallMode.CHOSEN) {
+            val rows = mutableListOf<@Composable () -> Unit>()
+            if (s.people.isEmpty()) rows += { GroupRow(vertical = 12.dp) { Text("Nobody yet", style = Type.body, color = a.muted) } }
+            s.people.forEach { p ->
+                rows += { GroupRow(vertical = 10.dp) {
+                    Avatar(p.name)
+                    TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
+                } }
+            }
+            rows += { Box(Modifier.padding(horizontal = 20.dp)) { TextAction("Add people", pick) } }
+            Group(rows)
+        }
     }
 }
 
 @Composable
 private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit, next: () -> Unit) {
-    val context = LocalContext.current
     val apps = AppList.apps.collectAsStateWithLifecycle().value
     val busy = remember { engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount() }
     // Chosen apps, then known messengers, then the apps that notified most this week; six at most, fixed while open.
@@ -306,7 +396,7 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
             .filter { it.pkg in s.apps || it.pkg in MESSENGERS || (busy[it.pkg] ?: 0) > 0 }.take(6)
     }
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Which apps tap your Fitbit\u00A0Air?", "Messages from these apps tap your band. Everything else stays on your phone.") {
+        StepHead("Which apps should buzz your Fitbit\u00A0Air?", "A message from one of these buzzes it once. Everything else stays on your phone.") {
             IconCircle(Curve.APPS)
         }
         Group(shown.map { app ->
@@ -322,42 +412,80 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
     }
 }
 
+/**
+ * The last step reuses Test buzz's readout (issue #22). The question and its answers stay pinned below it as one
+ * centred group, and the main button says what it lets happen (issue #24).
+ */
 @Composable
-private fun ColumnScope.FeelIt(engine: Engine) {
-    val context = LocalContext.current
+private fun ColumnScope.FeelIt(engine: Engine, done: () -> Unit) {
+    val a = LocalAirColors.current
     val run by engine.test.collectAsStateWithLifecycle()
-    var set by rememberSaveable { mutableStateOf(false) }
-    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) { engine.clearTest() }
     DisposableEffect(Unit) { onDispose { engine.clearTest() } }
     val turnOn = {
-        if (Build.VERSION.SDK_INT >= 33 && !Setup.hasPostNotifications(context)) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         engine.store.update { it.copy(pausedUntil = 0L) }
         engine.setEnabled(true)
-        set = true
+        done()
     }
     val again = { engine.clearTest(); engine.testBuzz() }
     val r = run?.result
     val buzzed = run?.buzzedMs
     val failed = r != null && r.taps == 0
     val connecting = run != null && buzzed == null && r == null
-    val buzz = when { set -> Buzz.REST; buzzed != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }
-    val (title, body) = when {
-        set -> "You're set" to "AirBuzz is on. To change anything later, tap Your Fitbit Air at the bottom of Home."
-        buzzed != null -> "Feel it" to "Your Fitbit Air tapped ${seconds(buzzed)} after you pressed. Did you feel it?"
-        connecting -> "Feel it" to "Connecting to your Fitbit Air…"
-        failed -> "No tap yet" to "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
-        else -> "Feel it" to "Press Test buzz. Your Fitbit Air should tap within 3–5 seconds."
-    }
     Step({
         when {
-            set -> StepFoot("Go to Home", { engine.store.update { it.copy(onboarded = true) } })
-            buzzed != null -> StepFoot("Yes, I felt it", turnOn, link = "No, try again", onLink = again)
             connecting -> StepFoot("Connecting…", {}, enabled = false)
-            failed -> StepFoot("Try again", again, link = "Skip the test", onLink = turnOn)
+            failed -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Try again", again, Modifier.fillMaxWidth())
+                Pill("Skip the test", turnOn, Modifier.fillMaxWidth(), filled = false)
+            }
+            buzzed != null || r != null -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Did your Fitbit Air buzz?", style = Type.bodyMedium, color = a.ink, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                Pill("Yes, turn AirBuzz on", turnOn, Modifier.fillMaxWidth())
+                // A new test can start only once the hand-off has finished and the result is in.
+                Pill("No, buzz again", again, Modifier.fillMaxWidth(), filled = false, enabled = r != null)
+            }
             else -> StepFoot("Test buzz", { engine.testBuzz() })
         }
-    }) {
-        StepHead(title, body) { AirPebble(80.dp, buzz) }
+    }, gap = 24) {
+        Text("Feel it", style = Type.heading, color = a.heading, modifier = Modifier.padding(top = 4.dp).semantics { heading() })
+        TestBuzzReadout(engine, button = "Test buzz")
     }
+}
+
+@Composable
+private fun ColumnScope.YoureSet(engine: Engine, s: Settings) {
+    val context = LocalContext.current
+    // One ring leaves the pebble as the page settles.
+    val wave = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { wave.animateTo(1f, tween(700, 260, Motion.Out)) }
+    Bookend(
+        title = "You're set",
+        body = setUpSummary(s) { appLabel(context, it) },
+        note = "To change anything later, tap Your Fitbit\u00A0Air at the bottom of Home.",
+        button = "Start using AirBuzz",
+        onClick = { engine.store.update { it.copy(onboarded = true) } },
+        wave = wave.value,
+    )
+}
+
+/** What setup turned on, in one or two sentences, such as "Calls from Mum now ring your Fitbit Air. Messages from WhatsApp buzz it once." */
+fun setUpSummary(s: Settings, label: (String) -> String): String {
+    fun list(names: List<String>, more: String) = when (names.size) {
+        1 -> names[0]
+        2 -> "${names[0]} and ${names[1]}"
+        else -> "${names[0]}, ${names[1]} and ${names.size - 2} $more"
+    }
+    val calls = when (s.callMode) {
+        CallMode.ANYONE -> "Every call now rings your Fitbit\u00A0Air."
+        CallMode.CONTACTS -> "Calls from your contacts now ring your Fitbit\u00A0Air."
+        CallMode.CHOSEN -> if (s.people.isEmpty()) null
+            else "Calls from ${list(s.people.map { it.name }, if (s.people.size == 3) "other" else "others")} now ring your Fitbit\u00A0Air."
+    }
+    val messages = if (s.apps.isEmpty()) null else {
+        val apps = list(s.apps.map(label).sortedBy { it.lowercase() }, if (s.apps.size == 3) "more app" else "more apps")
+        "Messages from $apps buzz ${if (calls != null) "it" else "your Fitbit\u00A0Air"} ${tapsWord(s.messageTaps)}."
+    }
+    return listOfNotNull(calls, messages).joinToString(" ").ifEmpty { "AirBuzz is on. Choose who rings and which apps buzz from Home." }
 }

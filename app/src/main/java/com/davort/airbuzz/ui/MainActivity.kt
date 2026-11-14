@@ -326,9 +326,9 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 { RuleItem("Messages", "Max 1 buzz per 15 s") {
                     Sentence(listOf(
                         Part.Words("When"),
-                        Part.Blank("Apps that tap", apps[0], open = sheet == SheetKind.APPS, shorter = apps.drop(1)) { open(SheetKind.APPS) },
-                        Part.Words(if (names.size == 1) "messages, tap" else "message, tap"),
-                        Part.Blank("Taps per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
+                        Part.Blank("Apps that buzz", apps[0], open = sheet == SheetKind.APPS, shorter = apps.drop(1)) { open(SheetKind.APPS) },
+                        Part.Words(if (names.size == 1) "messages, buzz" else "message, buzz"),
+                        Part.Blank("Buzzes per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
                     ))
                 } },
                 { RuleItem("Quiet", if (ringsAnyway(s) == null) "Calls too" else s.ringAnywayPeople.size.let { n -> if (n == 1) "1 person rings anyway" else "$n people ring anyway" }) {

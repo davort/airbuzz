@@ -349,11 +349,11 @@ fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
 
 /** An icon in a soft circle beside one sentence that says what the chosen mode does. */
 @Composable
-private fun Explainer(curve: Curve, text: String, roomy: Boolean) {
+fun Explainer(curve: Curve, text: String, roomy: Boolean, circle: Color = LocalAirColors.current.bg) {
     val a = LocalAirColors.current
     Row(Modifier.fillMaxWidth().padding(top = if (roomy) 20.dp else 8.dp, bottom = if (roomy) 20.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.size(44.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) { CurveIcon(curve, 22.dp, a.ink, 1.8f) }
+        Box(Modifier.size(44.dp).clip(CircleShape).background(circle), contentAlignment = Alignment.Center) { CurveIcon(curve, 22.dp, a.ink, 1.8f) }
         Text(text, style = Type.body, color = a.ink, modifier = Modifier.weight(1f))
     }
 }
@@ -575,7 +575,7 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     var query by remember { mutableStateOf("") }
     // Chosen apps first, then the ones that notified most this week, then by name. Order is fixed while open.
     val ordered = remember(apps == null) { apps?.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { -(weekCounts[it.pkg] ?: 0) }, { it.label.lowercase() })) }
-    Sheet("Apps that tap", onClose) {
+    Sheet("Apps that buzz", onClose) {
         Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) Text("Search apps", style = Type.body, color = a.muted)
@@ -609,7 +609,7 @@ fun PatternSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
 fun PatternBody(taps: Int, onSelect: (Int) -> Unit, onTry: (Int) -> Unit) {
     val a = LocalAirColors.current
     Column {
-        listOf(1 to "Tap once", 2 to "Tap twice", 3 to "Tap three times").forEachIndexed { i, (n, name) ->
+        listOf(1 to "Buzz once", 2 to "Buzz twice", 3 to "Buzz three times").forEachIndexed { i, (n, name) ->
             LineRow(i == 0, onClick = { onSelect(n) }) {
                 Mark(taps == n, radio = true)
                 Text(name, style = Type.bodyMedium, color = a.ink, modifier = Modifier.weight(1f))
@@ -618,7 +618,7 @@ fun PatternBody(taps: Int, onSelect: (Int) -> Unit, onTry: (Int) -> Unit) {
             }
         }
     }
-    Text("Calls always ring until you answer: a tap every second, for up to a minute.", style = Type.small, color = a.muted)
+    Text("Calls always ring until you answer: a buzz every second, for up to a minute.", style = Type.small, color = a.muted)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

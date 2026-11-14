@@ -16,6 +16,7 @@ import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -57,6 +58,16 @@ object Setup {
 
     /** The phone maker as people know it, such as "OPPO" or "Samsung", for the background activity step. */
     val maker: String get() = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+
+    /**
+     * Whether Android exempts AirBuzz from battery optimisation. On ColorOS this is "Allow background activity" under
+     * Battery usage (checked on Davor's phone, issue #20); on other phones it is the app's unrestricted battery setting.
+     */
+    fun ignoresBatteryOptimizations(c: Context) =
+        c.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(c.packageName) == true
+
+    /** OPPO, OnePlus and realme run ColorOS, whose App info page has Battery usage with "Allow background activity". */
+    val isColorOs: Boolean get() = Build.MANUFACTURER.lowercase() in setOf("oppo", "oneplus", "realme")
 
     val isXiaomi: Boolean get() = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) ||
         Build.BRAND.lowercase() in setOf("xiaomi", "redmi", "poco")
