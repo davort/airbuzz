@@ -1,6 +1,21 @@
 package com.davort.airbuzz.ui
 
 import androidx.activity.compose.BackHandler
+import android.provider.Settings as SystemSettings
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextDecoration
+import kotlin.math.sin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -53,6 +68,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,6 +97,8 @@ private val MESSENGERS = listOf(
 @Composable
 fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
     var page by rememberSaveable { mutableIntStateOf(INTRO) }
+    // The intro's animation plays once; coming back from step 1 shows where it ends (issue #26).
+    var introPlayed by rememberSaveable { mutableStateOf(false) }
     // Once AirBuzz is on, there is no going back into setup.
     BackHandler(page in 1..STEPS) { page-- }
     // AirBuzz is already on at "You're set", so Back finishes setup like its button.
@@ -107,7 +125,7 @@ fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
         }) { shown ->
             Column(Modifier.fillMaxSize()) {
                 when (shown) {
-                    INTRO -> Intro(next)
+                    INTRO -> Intro(introPlayed, { introPlayed = true }) { introPlayed = true; next() }
                     1 -> FindAir(next)
                     2 -> KeepRunning(next)
                     3 -> SeeAlerts(next)
@@ -218,11 +236,11 @@ private fun CheckRow(title: String, label: String, end: @Composable () -> Unit) 
 }
 
 /**
- * The centred page that opens and closes onboarding: the pebble with its rings, a large serif title, one sentence, and
- * the button at the bottom with an optional note above it. The intro and "You're set" mirror each other (issue #17).
+ * The centred page that closes onboarding: the pebble with its rings, a large serif title, one sentence, and
+ * the button at the bottom with a note above it. "You're set" mirrors the intro's last frame (issues #17, #26).
  */
 @Composable
-private fun ColumnScope.Bookend(title: String, body: String, note: String, button: String, onClick: () -> Unit, wave: Float = 0f, noteIsLabel: Boolean = false) {
+private fun ColumnScope.Bookend(title: String, body: String, note: String, button: String, onClick: () -> Unit, wave: Float = 0f) {
     val a = LocalAirColors.current
     Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         // The rings reach 18 dp past the capsule.
@@ -234,22 +252,115 @@ private fun ColumnScope.Bookend(title: String, body: String, note: String, butto
         Text(body, style = Type.body, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.width(300.dp))
     }
     Spacer(Modifier.height(12.dp))
-    if (noteIsLabel) Label(note, Modifier.align(Alignment.CenterHorizontally))
-    else Text(note, style = Type.small, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+    Text(note, style = Type.small, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
     Gap(12)
     Pill(button, onClick, Modifier.fillMaxWidth())
 }
 
+/** When the intro's story happens, in ms from the start (issue #26, Paper "Rich intro"). */
+private object IntroAt {
+    const val FIRST = 200f      // the first everyday alert drops in; the others follow 300 ms apart
+    const val CALL = 1800f      // Mum's call arrives and the Fitbit Air buzzes
+    const val SETTLE = 3000f    // the story fades and the title rises in
+    const val END = 3500f
+}
+
+private val INTRO_ALERTS = listOf(
+    "Your order is out for delivery.", "Someone liked your photo.", "20% off, this weekend only.", "Your weekly screen time report.",
+)
+
+/**
+ * The first-launch intro (issue #26): four everyday alerts land under the Fitbit Air and are ignored, then Mum's call
+ * buzzes it, and the page settles on the title. The Fitbit Air never moves: the story and the title share one box, so
+ * the layout is the same from the first frame to the last. Set up AirBuzz works throughout, a tap anywhere jumps to the
+ * end, and with Remove animations on, or once it has played, only the end shows.
+ */
 @Composable
-private fun ColumnScope.Intro(next: () -> Unit) {
-    Bookend(
-        title = "Your Fitbit\u00A0Air, buzzing for what\u00A0matters",
-        body = "Calls from the people you pick. Messages from the apps you pick. Everything else stays on your phone.",
-        note = "Setup takes about two minutes",
-        button = "Set up AirBuzz",
-        onClick = next,
-        noteIsLabel = true,
-    )
+private fun ColumnScope.Intro(played: Boolean, onPlayed: () -> Unit, next: () -> Unit) {
+    val a = LocalAirColors.current
+    val context = LocalContext.current
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val reduceMotion = remember {
+        SystemSettings.Global.getFloat(context.contentResolver, SystemSettings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
+    val t = remember { Animatable(if (played || reduceMotion) IntroAt.END else 0f) }
+    LaunchedEffect(Unit) {
+        if (t.value >= IntroAt.END) return@LaunchedEffect
+        // One light vibration as the Fitbit Air buzzes. It isn't linked yet, so the phone stands in for it.
+        launch { delay(IntroAt.CALL.toLong()); view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
+        t.animateTo(IntroAt.END, tween(IntroAt.END.toInt(), easing = LinearEasing))
+        onPlayed()
+    }
+    val scope = rememberCoroutineScope()
+    val skip = { if (t.value < IntroAt.END) { scope.launch { t.snapTo(IntroAt.END) }; onPlayed() } }
+    val now = t.value
+    // 0..1 progress of a stretch of the story, eased like every enter.
+    fun part(start: Float, length: Float, easing: Easing = Motion.Out) = easing.transform(((now - start) / length).coerceIn(0f, 1f))
+    fun dp(v: Float) = with(density) { v.dp.toPx() }
+
+    val story = 1f - part(IntroAt.SETTLE, 250f, Motion.In)
+    val title = part(IntroAt.SETTLE + 50f, 400f)
+    // The capsule twitches twice as in Test buzz, and two rings leave it.
+    val shake = ((now - IntroAt.CALL) / 280f).let { if (it in 0f..1f) sin(it * 4f * Math.PI.toFloat()) * dp(2.5f) else 0f }
+    val wave = listOf(IntroAt.CALL, IntroAt.CALL + 500f).map { (now - it) / 520f }.firstOrNull { it in 0.001f..0.999f } ?: 0f
+
+    Column(
+        Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures { skip() } },
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
+        Box(Modifier.padding(18.dp)) {
+            AirPebble(120.dp, if (now >= IntroAt.CALL) Buzz.TAPPED else Buzz.REST, shake, wave = wave)
+        }
+        Gap(28)
+        Box(contentAlignment = Alignment.TopCenter) {
+            // The story is decoration: a screen reader reads the title and sentence underneath.
+            Column(
+                Modifier.fillMaxWidth().clearAndSetSemantics {}.graphicsLayer { alpha = story },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val dim = 1f - 0.6f * part(IntroAt.CALL, 250f)
+                Column(Modifier.graphicsLayer { alpha = dim }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    INTRO_ALERTS.forEachIndexed { i, text ->
+                        val inP = part(IntroAt.FIRST + i * 300f, 300f)
+                        Row(
+                            Modifier.fillMaxWidth().graphicsLayer { alpha = inP; translationY = (1f - inP) * dp(-12f) }
+                                .clip(groupShape(i, INTRO_ALERTS.size)).background(a.surface).padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(text, style = Type.small.copy(fontSize = 15.sp, textDecoration = TextDecoration.LineThrough), color = a.muted,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Label("Ignored")
+                        }
+                    }
+                }
+                val call = part(IntroAt.CALL, 300f)
+                Row(
+                    Modifier.fillMaxWidth().graphicsLayer { alpha = call; translationY = (1f - call) * dp(16f) }
+                        .clip(RoundedCornerShape(20.dp)).background(a.accent).padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Mum is calling", style = Type.heading.copy(fontSize = 26.sp, lineHeight = 32.sp), color = a.onInk, modifier = Modifier.weight(1f))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(a.onInk))
+                    Label("Buzzing", color = a.onInk)
+                }
+            }
+            Column(
+                Modifier.graphicsLayer { alpha = title; translationY = (1f - title) * dp(8f) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Your Fitbit\u00A0Air, buzzing for what\u00A0matters", style = Type.heading.copy(fontSize = 44.sp, lineHeight = 48.sp),
+                    color = a.heading, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
+                Gap(12)
+                Text("Calls from the people you pick. Messages from the apps you pick. Everything else stays on your phone.",
+                    style = Type.body, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.width(300.dp))
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Label("Setup takes about two minutes", Modifier.align(Alignment.CenterHorizontally))
+    Gap(12)
+    Pill("Set up AirBuzz", next, Modifier.fillMaxWidth())
 }
 
 @Composable

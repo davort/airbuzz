@@ -415,7 +415,7 @@ fun Rhythm(taps: Int, ring: Boolean = false) {
 
 // Containers.
 
-private fun groupShape(i: Int, n: Int): RoundedCornerShape {
+internal fun groupShape(i: Int, n: Int): RoundedCornerShape {
     val top = if (i == 0) 24.dp else 4.dp
     val bottom = if (i == n - 1) 24.dp else 4.dp
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
