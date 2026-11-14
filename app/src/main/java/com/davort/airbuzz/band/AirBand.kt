@@ -31,6 +31,7 @@ import com.fitbit.goldengate.bindings.stack.Stack
 import com.fitbit.goldengate.bindings.stack.StackEvent
 import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
+import java.io.File
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.UUID
@@ -254,6 +255,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var resubscribedAt = 0L
     /** Google Health was syncing when the running command started, for its steps line. */
     private var duringSync = false
+
+    init {
+        // Start Golden Gate now, while AirBuzz has few files open. Its loop watches one socket with select(), which
+        // aborts the process when that socket's number is 1024 or more. Started at the first buzz instead, the socket
+        // can get a high number: on 14 Nov, Test buzz 24 s after an update crashed with fd 1495, because opening
+        // AirBuzz reads every launcher app's name and Android holds their APKs open until the next garbage collection.
+        // A failure here is reported by the first buzz, which calls init again.
+        runCatching { GoldenGate.init() }
+    }
 
     fun findBondedAir(): BluetoothDevice? {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return null
@@ -487,8 +497,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (now - batteryAt < BATTERY_EVERY_MS && batteryAt != 0L) return
         batteryAt = now
         val bm = context.getSystemService(BatteryManager::class.java) ?: return
-        log("Battery: phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}")
+        log("Battery: phone ${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%${if (bm.isCharging) " charging" else ""}; ${openFiles()} files open")
     }
+
+    /** How many files and sockets AirBuzz has open, for the step log (see the init block above). */
+    private fun openFiles(): Int = File("/proc/self/fd").list()?.size ?: -1
 
     private fun enqueue(packet: ByteArray) {
         txQueue.addLast(packet)
@@ -755,6 +768,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         append("; $handshakeAttempts handshake${if (handshakeAttempts == 1) "" else "s"}, $wrongKeys wrong key${if (wrongKeys == 1) "" else "s"}, ")
         append("$lostRaces lost race${if (lostRaces == 1) "" else "s"}; $quietPackets packets heard while waiting for quiet")
         if (duringSync) append("; started during a Google Health sync")
+        append("; ${openFiles()} files open")
     }
 
     /** Rebuilds the stack with a resolver that refuses every key and waits for the band to resend its Gattlink session. */
