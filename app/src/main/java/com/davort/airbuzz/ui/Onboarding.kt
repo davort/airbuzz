@@ -3,6 +3,7 @@ package com.davort.airbuzz.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -86,8 +87,14 @@ fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
     BackHandler(page == DONE) { engine.store.update { it.copy(onboarded = true) } }
     val next = { page = (page + 1).coerceAtMost(DONE) }
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp)) {
-        AnimatedVisibility(page in 1..STEPS, enter = fadeIn(tween(200, easing = Motion.Out)), exit = fadeOut(tween(150, easing = Motion.Out))) {
-            StepBar(page) { page-- }
+        // The bar's room is kept on every page, so the content below never jumps when it comes or goes (issue #27).
+        // It drops in just after the first step starts sliding, and its first segment fills as it arrives.
+        Column(Modifier.fillMaxWidth().height(48.dp)) {
+            AnimatedVisibility(visible = page in 1..STEPS,
+                enter = fadeIn(tween(240, 80, Motion.Out)) + slideInVertically(tween(320, 80, Motion.Out)) { -it / 3 },
+                exit = fadeOut(tween(150, easing = Motion.Out))) {
+                StepBar(page) { page-- }
+            }
         }
         // Steps change like pages (decision 40): Next brings the next one in from the right, Back from the left.
         // "You're set" is an ending, not a next step, so it fades and settles in place instead.
@@ -125,9 +132,11 @@ private fun StepBar(step: Int, onBack: () -> Unit) {
         Row(Modifier.weight(1f).semantics { contentDescription = "Step $step of $STEPS" }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             repeat(STEPS) { i ->
                 // Each segment fills from its left edge.
-                val fill by animateFloatAsState(if (i < step) 1f else 0f, tween(240, easing = Motion.Out), label = "segment")
+                // Starts empty, so the first segment also fills when the bar first appears.
+                val fill = remember { Animatable(0f) }
+                LaunchedEffect(i < step) { fill.animateTo(if (i < step) 1f else 0f, tween(240, if (step == 1) 200 else 0, Motion.Out)) }
                 Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(a.line)) {
-                    Box(Modifier.fillMaxWidth(fill).height(3.dp).background(a.ink))
+                    Box(Modifier.fillMaxWidth(fill.value).height(3.dp).background(a.ink))
                 }
             }
         }
@@ -291,15 +300,18 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
         StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit\u00A0Air.") {
             IconCircle(Curve.LINK)
         }
-        val rows = mutableListOf<@Composable () -> Unit>(
+        val rows = listOf<@Composable () -> Unit>(
             { CheckRow("Link your Fitbit Air", "Android asks once") {
                 if (linked) Done("Linked") else Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
             } },
-            { CheckRow("Allow background activity", if (Setup.isColorOs) "${Setup.maker} · Battery usage" else "${Setup.maker} · Battery") {
-                if (allowed) Done("Allowed") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, small = true)
+            // One task, one panel (issue #28): the path to the setting sits in the same panel as its row.
+            { Column {
+                CheckRow("Allow background activity", if (Setup.isColorOs) "${Setup.maker} · Battery usage" else "${Setup.maker} · Battery") {
+                    if (allowed) Done("Allowed") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, small = true)
+                }
+                if (!allowed) BackgroundPath()
             } },
         )
-        if (!allowed) rows += { BackgroundPath() }
         Group(rows)
         error?.let { Text(it, style = Type.small, color = a.warn) }
     }
@@ -309,7 +321,7 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
 @Composable
 private fun BackgroundPath() {
     val a = LocalAirColors.current
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("On the page that opens:", style = Type.small, color = a.muted, modifier = Modifier.padding(bottom = 2.dp))
         val lines = if (Setup.isColorOs) listOf("Tap " to "Battery usage", "Choose " to "Allow background activity", "Tap " to "Allow")
         else listOf("Tap " to "Battery", "Choose " to "Unrestricted")
