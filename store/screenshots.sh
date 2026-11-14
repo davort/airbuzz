@@ -87,7 +87,7 @@ for mode in LIGHT DARK; do
   sleep 3
   shot "1-home-$m.png"
   tap "Who can ring"; shot "2-who-can-ring-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
-  tap "Apps that tap"; shot "3-apps-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
+  tap "Apps that buzz"; shot "3-apps-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "When to stay quiet"; shot "4-stay-quiet-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "3 BUZZED"; tap "All"; shot "5-activity-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1
 done
