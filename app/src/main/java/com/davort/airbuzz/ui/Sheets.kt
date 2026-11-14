@@ -91,6 +91,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.unit.Dp
@@ -338,16 +339,12 @@ fun recentCallers(entries: List<com.davort.airbuzz.data.Entry>, s: Settings, reg
         .filter { (it.number ?: it.name) !in s.hiddenCallers }
         .takeLast(5).reversed()
 
-/** The middle of a sheet: it scrolls when it is too tall, and fades out above the button while there is more below. */
+/** The middle of a sheet: it scrolls when it is too tall, and fades out under the title and above the button. */
 @Composable
 fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
-    val a = LocalAirColors.current
     val scroll = rememberScrollState()
-    Box(Modifier.weight(1f, fill = false)) {
-        Column(Modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
-        if (scroll.canScrollForward) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, a.surface))))
-    }
+    Column(Modifier.weight(1f, fill = false).edgeFades(scroll, LocalAirColors.current.surface).verticalScroll(scroll),
+        verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
 }
 
 /** An icon in a soft circle beside one sentence that says what the chosen mode does. */
@@ -587,7 +584,8 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
         // Lazy, so only the rows on screen are built and only their icons load.
         val shown = ordered.orEmpty().filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
         if (ordered == null) Label("Reading your apps…", Modifier.height(420.dp))
-        LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp)) {
+        val list = rememberLazyListState()
+        LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp).edgeFades(list, a.surface), list) {
             itemsIndexed(shown, key = { _, app -> app.pkg }) { i, app ->
                 LineRow(i == 0, onClick = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }) {
                     AppIcon(app.pkg, 36.dp)

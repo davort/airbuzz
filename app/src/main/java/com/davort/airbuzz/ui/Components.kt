@@ -39,6 +39,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -56,9 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -485,6 +489,36 @@ fun ScreenBar(title: String, onBack: () -> Unit, close: Boolean = false, right: 
         right()
     }
 }
+
+/**
+ * Fades a scrolling area into [color] at both ends: under the fixed top once it has scrolled, and above the buttons
+ * while more is below. Each fade eases in over the first 40 dp of scroll at its end instead of popping in.
+ * Put it before the scroll modifier, so it draws over the visible part.
+ */
+private fun Modifier.edgeFades(color: Color, top: (fadePx: Float) -> Float, bottom: (fadePx: Float) -> Float) = drawWithContent {
+    drawContent()
+    val h = 40.dp.toPx()
+    val t = top(h).coerceIn(0f, 1f)
+    val b = bottom(h).coerceIn(0f, 1f)
+    if (t > 0f) drawRect(Brush.verticalGradient(listOf(color, Color.Transparent), 0f, h), size = Size(size.width, h), alpha = t)
+    if (b > 0f) drawRect(Brush.verticalGradient(listOf(Color.Transparent, color), size.height - h, size.height),
+        Offset(0f, size.height - h), Size(size.width, h), alpha = b)
+}
+
+fun Modifier.edgeFades(scroll: ScrollState, color: Color) =
+    edgeFades(color, { scroll.value / it }, { (scroll.maxValue - scroll.value) / it })
+
+fun Modifier.edgeFades(list: LazyListState, color: Color) = edgeFades(color,
+    { if (list.firstVisibleItemIndex > 0) 1f else list.firstVisibleItemScrollOffset / it },
+    { px ->
+        val info = list.layoutInfo
+        val last = info.visibleItemsInfo.lastOrNull()
+        when {
+            last == null -> 0f
+            last.index < info.totalItemsCount - 1 -> 1f
+            else -> (last.offset + last.size - info.viewportEndOffset) / px
+        }
+    })
 
 @Composable
 fun Gap(h: Int) = Spacer(Modifier.height(h.dp))

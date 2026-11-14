@@ -132,16 +132,15 @@ private fun StepHead(title: String, body: String, art: @Composable () -> Unit) {
 
 /**
  * One step: [body] scrolls, and [foot] stays at the bottom so the main button is always in view.
- * A hairline above the button shows while more of the step is below it.
+ * The body fades out under the progress bar and above the button, as in the sheets.
  */
 @Composable
 private fun ColumnScope.Step(foot: @Composable ColumnScope.() -> Unit, body: @Composable ColumnScope.() -> Unit) {
     val scroll = rememberScrollState()
-    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.weight(1f).fillMaxWidth().edgeFades(scroll, LocalAirColors.current.bg).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         body()
         Spacer(Modifier.height(8.dp))
     }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(if (scroll.canScrollForward) LocalAirColors.current.line else Color.Transparent))
     Spacer(Modifier.height(12.dp))
     foot()
 }

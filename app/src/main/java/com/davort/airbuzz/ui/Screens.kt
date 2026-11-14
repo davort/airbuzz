@@ -58,7 +58,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -403,55 +402,51 @@ fun TestBuzzScreen(engine: Engine, onBack: () -> Unit) {
     val tapColor = if (grade == Grade.SLOW) a.ink else a.accent
 
     // The title and the buttons stay put; everything between them scrolls, so a note that arrives late or a short
-    // screen never pushes the buttons off. While more is below, it fades out above the buttons, as in the sheets.
+    // screen never pushes the buttons off. It fades out at both ends, as in the sheets.
     val scroll = rememberScrollState()
     Column(Modifier.fillMaxSize().padding(bottom = 20.dp)) {
         Box(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp)) { ScreenBar("Test buzz", onBack = onBack) }
-        Box(Modifier.weight(1f)) {
-            Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // The capsule twitches on the tap: two 1.5 dp wobbles.
-                    val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 4f * Math.PI.toFloat()) * with(LocalDensity.current) { 1.5.dp.toPx() } else 0f
-                    // Room for the rings, which reach 18 dp past the capsule, so they stay inside the page margin.
-                    Box(Modifier.padding(18.dp)) {
-                        AirPebble(80.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
-                            if (buzzedMs != null) "Your Fitbit Air buzzed" else if (connecting) "Connecting to your Fitbit Air" else "Your Fitbit Air", wave.value)
+        Column(Modifier.weight(1f).fillMaxWidth().edgeFades(scroll, a.bg).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The capsule twitches on the tap: two 1.5 dp wobbles.
+                val shift = if (shake.value in 0.001f..0.999f) sin(shake.value * 4f * Math.PI.toFloat()) * with(LocalDensity.current) { 1.5.dp.toPx() } else 0f
+                // Room for the rings, which reach 18 dp past the capsule, so they stay inside the page margin.
+                Box(Modifier.padding(18.dp)) {
+                    AirPebble(80.dp, when { buzzedMs != null -> Buzz.TAPPED; connecting -> Buzz.CONNECTING; else -> Buzz.REST }, shift,
+                        if (buzzedMs != null) "Your Fitbit Air buzzed" else if (connecting) "Connecting to your Fitbit Air" else "Your Fitbit Air", wave.value)
+                }
+                HGap(12)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Label("Time to tap")
+                    val (time, color) = when {
+                        buzzedMs != null -> seconds(buzzedMs).removeSuffix(" s") to tapColor
+                        connecting -> seconds(elapsed).removeSuffix(" s") to a.ink
+                        failed -> seconds(r?.totalMs).removeSuffix(" s") to a.warn
+                        else -> "0.0" to a.muted
                     }
-                    HGap(12)
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Label("Time to tap")
-                        val (time, color) = when {
-                            buzzedMs != null -> seconds(buzzedMs).removeSuffix(" s") to tapColor
-                            connecting -> seconds(elapsed).removeSuffix(" s") to a.ink
-                            failed -> seconds(r?.totalMs).removeSuffix(" s") to a.warn
-                            else -> "0.0" to a.muted
-                        }
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(time, style = Type.number(56, 64), color = color)
-                            HGap(4)
-                            Text("s", style = Type.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(400)), color = color, modifier = Modifier.padding(bottom = 8.dp))
-                        }
-                        when {
-                            grade != null -> Label("${grade.word} · tapped ${tapsWord(r?.taps ?: 1)}", color = tapColor)
-                            connecting -> Label("Connecting")
-                            failed -> Label("No tap", color = a.warn)
-                            else -> Label("Ready")
-                        }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(time, style = Type.number(56, 64), color = color)
+                        HGap(4)
+                        Text("s", style = Type.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(400)), color = color, modifier = Modifier.padding(bottom = 8.dp))
+                    }
+                    when {
+                        grade != null -> Label("${grade.word} · tapped ${tapsWord(r?.taps ?: 1)}", color = tapColor)
+                        connecting -> Label("Connecting")
+                        failed -> Label("No tap", color = a.warn)
+                        else -> Label("Ready")
                     }
                 }
-                Text(when {
-                    grade != null -> "Your Fitbit Air tapped ${seconds(buzzedMs)} after you pressed Test. ${grade.sentence}"
-                    connecting -> "Connecting to your Fitbit Air…"
-                    failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
-                    else -> "Press Test to tap your Fitbit Air once and see how long it takes. Under 3 s is excellent, under 5 s is good."
-                }, style = Type.body, color = a.ink)
-                Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
-                StepList(steps, if (connecting) elapsed else null)
-                if (r != null && r.wrongKeys + r.lostRaces > 0)
-                    Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
             }
-            if (scroll.canScrollForward) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, a.bg))))
+            Text(when {
+                grade != null -> "Your Fitbit Air tapped ${seconds(buzzedMs)} after you pressed Test. ${grade.sentence}"
+                connecting -> "Connecting to your Fitbit Air…"
+                failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
+                else -> "Press Test to tap your Fitbit Air once and see how long it takes. Under 3 s is excellent, under 5 s is good."
+            }, style = Type.body, color = a.ink)
+            Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
+            StepList(steps, if (connecting) elapsed else null)
+            if (r != null && r.wrongKeys + r.lostRaces > 0)
+                Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
         }
         Box(Modifier.padding(horizontal = 20.dp)) {
             when {
