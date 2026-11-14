@@ -1,6 +1,7 @@
 package com.davort.airbuzz.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -334,7 +335,9 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
 /**
  * The Strength choice (#15): two tiles, each with the pebble and its rings. Gentle has one ring at 70%, Strong two
  * (the outer at 45%). The chosen tile is tinted, outlined and ringed in the accent, with a check; the other is grey.
- * The pebble has no rim here, in dark mode too (Davor, 14 Nov).
+ * The pebble has no rim here, in dark mode too (Davor, 14 Nov). Choosing a tile plays its rings (#29): the pebble
+ * stays still, its resting rings settle in and waves leave it, one for Gentle and two for Strong. With Remove
+ * animations on, Android ends the animation at once, so only the colours change.
  */
 @Composable
 fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
@@ -345,10 +348,17 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
             val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "strength")
             val shape = RoundedCornerShape(16.dp)
             val ring = lerp(a.muted, a.accent, shown)
+            // 0..1 over 700 ms; it rests at 1 (nothing playing) and plays only when this tile becomes the chosen one.
+            val play = remember { Animatable(1f) }
+            val first = remember { booleanArrayOf(true) }
+            LaunchedEffect(on) {
+                if (first[0]) { first[0] = false; return@LaunchedEffect }
+                if (on) { play.snapTo(0f); play.animateTo(1f, tween(700, easing = LinearEasing)) }
+            }
             Box(
                 Modifier.weight(1f).clip(shape).background(a.tint.copy(alpha = a.tint.alpha * shown))
                     .border((1f + 0.5f * shown).dp, lerp(a.outline, a.accent, shown), shape)
-                    .selectable(on, role = Role.RadioButton) { onSelect(value) },
+                    .selectable(on, role = Role.RadioButton) { if (!on) onSelect(value) },
             ) {
                 Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 34.dp, bottom = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -357,8 +367,19 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
                         val u = size.width / 114f
                         fun capsule(inset: Float, color: Color, stroke: Float) = drawRoundRect(color, Offset(inset * u, inset * u),
                             Size((114 - 2 * inset) * u, (74 - 2 * inset) * u), CornerRadius((37 - inset) * u), style = Stroke(stroke * u))
-                        if (value) { capsule(8f, ring, 2.6f); capsule(1.2f, ring.copy(alpha = 0.45f), 2.4f) }
-                        else capsule(8f, ring.copy(alpha = 0.7f), 2.4f)
+                        // Each part's progress: it starts [from] ms into the 700 and runs for [ms] on the Out curve.
+                        fun part(from: Int, ms: Int) = Motion.Out.transform(((play.value * 700 - from) / ms).coerceIn(0f, 1f))
+                        fun settled(p: Float, draw: () -> Unit) = scale(0.82f + 0.18f * p) { if (p > 0f) draw() }
+                        val inner = part(0, 420)
+                        if (value) {
+                            settled(inner) { capsule(8f, ring.copy(alpha = inner), 2.6f) }
+                            val outer = part(60, 420)
+                            settled(outer) { capsule(1.2f, ring.copy(alpha = 0.45f * outer), 2.4f) }
+                        } else settled(inner) { capsule(8f, ring.copy(alpha = 0.7f * inner), 2.4f) }
+                        (if (value) listOf(0, 140) else listOf(0)).forEach { delay ->
+                            val w = part(delay, 560)
+                            if (w > 0f && w < 1f) scale(1f + 0.45f * w) { capsule(17f, a.accent.copy(alpha = 0.95f * (1f - w)), 2.4f) }
+                        }
                         drawRoundRect(Pebble, Offset(17 * u, 17 * u), Size(80 * u, 40 * u), CornerRadius(20 * u))
                         drawLine(Color(0xFF3A3C40), Offset(29 * u, 25.8f * u), Offset(69 * u, 25.8f * u), 3 * u, StrokeCap.Round)
                     }

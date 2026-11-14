@@ -96,7 +96,8 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
         ScreenBar("Settings", onBack = { go(Screen.HOME) }, close = true)
         Card {
             Label("Strength")
-            StrengthTiles(s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
+            // The Fitbit Air buzzes once at the new strength, so you feel the difference (#29).
+            StrengthTiles(s.strong) { strong -> engine.store.update { it.copy(strong = strong) }; engine.testBuzz() }
             Text("Strong uses more battery and also sets your Fitbit Air's alarm strength.", style = Type.small, color = a.muted)
         }
         Group(listOf({
