@@ -5,6 +5,7 @@ Davor owns this; it is his first Android project, so explain Android steps he mu
 ## Rules
 
 - Every APK Davor installs gets a new `versionCode` and `versionName` in `app/build.gradle.kts` and a line under "Versions" in `README.md`.
+- Davor's phone runs builds signed with Misek AB's `airbuzz` key (SHA-256 22:28:3C…F7:6D), the key Play uses (Davor, 14 Nov). A debug build can't install over it, so every build for his phone comes from a `v<versionName>` tag through `.github/workflows/release.yml`: the release APK over `adb install -r`, or the bundle to Play internal testing. Say which one when you hand him a build. versionCode only rises: Play rejects a bundle whose versionCode it has already seen.
 - Every push to main runs `.github/workflows/checks.yml` (version bookkeeping, unit tests, debug APK). Before pushing a version bump, run `.github/version-check.sh origin/main`; when Checks fails on your push, fix main before anything else.
 - Keep `THIRD_PARTY_NOTICES.md` current when adding code or assets from elsewhere. The band layer follows the MIT fitbit-air library; keep its notice.
 - Nothing involving Bluetooth, the band, permissions, background running, notifications, calls, or how a screen looks on his phone is verified until it has run on his phone: an OPPO Find X9 Pro (CPH2791) on ColorOS 17, Android 17 (checked over adb on 11 Nov 2026). Orbs cannot run an Android emulator. Name what still needs the phone when you report.
