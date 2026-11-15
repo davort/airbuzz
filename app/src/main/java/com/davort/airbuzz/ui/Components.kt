@@ -1,5 +1,12 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.foundation.interaction.PressInteraction
+import android.os.SystemClock
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.core.Animatable
@@ -23,7 +30,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -268,15 +274,16 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                 }
                 is Part.Blank -> Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
                     val interaction = remember { MutableInteractionSource() }
-                    val pressed by interaction.collectIsPressedAsState()
-                    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(100), label = "press")
+                    val pressed = rememberHeldPress(interaction)
+                    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(if (pressed) 100 else 150, easing = Motion.Out), label = "press")
+                    val scope = rememberCoroutineScope()
                     Row(
                         Modifier
                             .graphicsLayer { scaleX = scale; scaleY = scale }
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (pressed || part.open) a.tintPressed else a.tint)
-                            .clickable(interaction, indication = null, onClick = part.onClick)
+                            .clickable(interaction, indication = null) { scope.launch { delay(100); part.onClick() } }
                             .clearAndSetSemantics {
                                 role = Role.Button
                                 contentDescription = "${part.label}: ${part.value}"
@@ -640,6 +647,26 @@ fun BarMark(fate: Fate) {
     Box(Modifier.size(width = 10.dp, height = 16.dp), contentAlignment = Alignment.BottomCenter) {
         Box(Modifier.size(width = 3.dp, height = h.dp).clip(RoundedCornerShape(1.dp)).background(color))
     }
+}
+
+/**
+ * Whether a tap target looks pressed. Home scrolls, so Compose reports a quick tap's press only as the finger lifts, and
+ * whatever the tap opens would cover it at once. So the pressed look holds for at least 180 ms; callers open their
+ * page or sheet 100 ms after the tap, once the press has shown (the Today line in 0.6.36, the pickers in 0.6.39).
+ */
+@Composable
+fun rememberHeldPress(interaction: MutableInteractionSource): Boolean {
+    var pressed by remember { mutableStateOf(false) }
+    LaunchedEffect(interaction) {
+        var since = 0L
+        interaction.interactions.collectLatest { i ->
+            when (i) {
+                is PressInteraction.Press -> { since = SystemClock.uptimeMillis(); pressed = true }
+                is PressInteraction.Release, is PressInteraction.Cancel -> { delay(180 - (SystemClock.uptimeMillis() - since)); pressed = false }
+            }
+        }
+    }
+    return pressed
 }
 
 /** A day's alerts on a 24-hour line. Tests are left out. [line] goes on the line alone, without the hour labels. */

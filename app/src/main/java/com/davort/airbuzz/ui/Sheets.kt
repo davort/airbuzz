@@ -200,13 +200,19 @@ fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, c
     val dismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(visible) {
         if (visible) { drag.floatValue = 0f; shown.animateTo(1f, tween(Motion.SHEET, easing = Motion.Out)) }
+        else if (height > 0 && drag.floatValue >= height) shown.snapTo(0f) // already dragged away
         else shown.animateTo(0f, tween(Motion.SHEET_BACK, easing = Motion.Out))
     }
     if (!visible && shown.value == 0f) return
     val fast = with(LocalDensity.current) { 1200.dp.toPx() }
     // Let go past a quarter of the sheet, or with a flick, and it closes; otherwise it springs back.
     suspend fun settle(velocity: Float) {
-        if (drag.floatValue > height / 4f || velocity > fast) dismiss()
+        // A dismissed sheet keeps the finger's speed on its way down, as a spring without bounce, instead of restarting
+        // at a fixed pace (Emil: a draggable sheet hands its release velocity to the animation).
+        if (drag.floatValue > height / 4f || velocity > fast) {
+            animate(drag.floatValue, height.toFloat(), velocity, spring(stiffness = Spring.StiffnessMediumLow)) { v, _ -> drag.floatValue = v }
+            dismiss()
+        }
         else animate(drag.floatValue, 0f, velocity, spring(stiffness = Spring.StiffnessMediumLow)) { v, _ -> drag.floatValue = v }
     }
     val scope = rememberCoroutineScope()
@@ -379,7 +385,7 @@ fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSe
                 Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
                     CurveIcon(when (mode) { CallMode.CHOSEN -> Curve.PEOPLE; CallMode.CONTACTS -> Curve.CONTACTS; CallMode.ANYONE -> Curve.CALLING }, 24.dp, a.ink, 1.8f)
                 }
-                Gap(16)
+                Gap(8)
             }
             Text(buildAnnotatedString {
                 append(before)

@@ -7,7 +7,6 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -33,7 +32,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -102,7 +100,6 @@ import com.davort.airbuzz.rules.Settings as AirSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.flow.collectLatest
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
@@ -331,18 +328,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 // once the tint has come in.
                 val scope = rememberCoroutineScope()
                 val interaction = remember { MutableInteractionSource() }
-                var pressed by remember { mutableStateOf(false) }
-                LaunchedEffect(interaction) {
-                    var since = 0L
-                    interaction.interactions.collectLatest { i ->
-                        when (i) {
-                            is PressInteraction.Press -> { since = SystemClock.uptimeMillis(); pressed = true }
-                            is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                delay(180 - (SystemClock.uptimeMillis() - since)); pressed = false
-                            }
-                        }
-                    }
-                }
+                val pressed = rememberHeldPress(interaction)
                 val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
                 val panel by animateColorAsState(if (pressed) a.tintPressed else a.tintPressed.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
                 val nudge = remember { Animatable(0f) }

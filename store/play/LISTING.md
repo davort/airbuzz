@@ -41,7 +41,7 @@ Paper file "AirBuzz", page "Store", artboard "Feature graphic · B · The senten
 | File | Caption |
 | --- | --- |
 | 1-home | When Mum calls, your Fitbit Air rings. |
-| 2-who-can-ring | Pick who can ring. The rest stay on your phone. |
+| 2-who-can-ring | Pick who can ring. Other calls ring only your phone. (retaken from 0.6.39) |
 | 3-apps | Pick the apps that buzz. The deals and likes don't. |
 | 4-stay-quiet | Quiet at night. Mum still gets through. |
 | 5-activity | See what buzzed, and why the rest didn't. |
