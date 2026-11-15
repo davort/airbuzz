@@ -1,6 +1,6 @@
 # AirBuzz privacy policy
 
-Effective 12 November 2026.
+Effective 15 November 2026.
 
 AirBuzz is published by Misek AB. For questions about this policy or your data, write to support@airbuzz.me.
 
@@ -21,7 +21,7 @@ Nothing, unless you send it yourself. AirBuzz has no permission to use the inter
 
 The step log leaves your phone only when you press **Share log** and choose where to send it, such as an email. The shared log also includes your phone's maker and model, its Android version and the AirBuzz version.
 
-AirBuzz talks to your Fitbit Air only over Bluetooth. It sends your Air only the command to vibrate, never what an alert says, and reads its battery level.
+AirBuzz talks to your Fitbit Air only over Bluetooth. It sends your Air only the command to vibrate, never what an alert says. To tell when Google Health is syncing, it counts how much the Fitbit Air sends Google Health. That traffic is encrypted, and AirBuzz can't read it.
 
 ## Deleting your data
 
