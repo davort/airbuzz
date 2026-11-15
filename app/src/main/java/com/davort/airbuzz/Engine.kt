@@ -69,12 +69,17 @@ class AirBuzzApp : Application() {
             am.getHistoricalProcessStartReasons(1).firstOrNull()?.let { " by ${startReason(it.reason)}" }
         }.getOrNull() else null
         val last = if (Build.VERSION.SDK_INT >= 30) runCatching { am.getHistoricalProcessExitReasons(null, 0, 1).firstOrNull() }.getOrNull() else null
+        val time = SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT)
+        // Android records no stop for a shutdown, and on 15 Nov kept none for an update 3 minutes before one either, so
+        // a last stop from before the phone started says only that the phone restarted since.
+        val bootAt = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+        val restarted = if (last != null && last.timestamp < bootAt) " The phone restarted at ${time.format(Date(bootAt))}." else ""
         val stopped = last?.let {
             val where = if (it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE) "on screen" else "in the background"
-            " Last stopped ${SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT).format(Date(it.timestamp))} $where: " +
+            " Last ${if (restarted.isEmpty()) "stopped" else "recorded stop before that"} ${time.format(Date(it.timestamp))} $where: " +
                 exitReason(it.reason) + (it.description?.takeIf(String::isNotBlank)?.let { d -> " ($d)" } ?: "")
         } ?: ""
-        return "AirBuzz $version started${started ?: ""}.$stopped"
+        return "AirBuzz $version started${started ?: ""}.$restarted$stopped"
     }
 
     private fun startReason(reason: Int) = when (reason) {
@@ -389,7 +394,11 @@ class Engine(private val app: Context) {
             // A call the Air didn't answer at all is tried again almost at once: nothing was taken from Google Health,
             // and on 12 Nov the 5 s wait put a ringing call's first buzz at 14.3 s.
             val wait = if (r.bandSilent && job.ringKey != null) SILENT_RING_RETRY_MS else RETRY_MS
-            val retry = failed && !job.seen && SystemClock.elapsedRealtime() + wait < job.giveUpAt
+            // Test buzz gets the one retry a message would get when the Air answered nothing, as right after Bluetooth
+            // came back on (15 Nov), so it doesn't fail where a message would buzz (Davor, 15 Nov). Its time still
+            // counts from the press.
+            val retry = failed && !job.seen && if (job === testJob) r.bandSilent && job.tries < 2
+                else SystemClock.elapsedRealtime() + wait < job.giveUpAt
             bandState.value = bandState.value.copy(
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
