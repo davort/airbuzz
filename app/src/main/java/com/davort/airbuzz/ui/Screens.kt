@@ -488,7 +488,8 @@ fun TestBuzzReadout(engine: Engine, button: String) {
     }, style = Type.body, color = a.ink)
     Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
     StepList(steps, if (connecting) elapsed else null)
-    if (r != null && r.wrongKeys + r.lostRaces > 0)
+    // A wrong key alone is normal on a new secure session; only a lost race means Google Health had the Fitbit Air.
+    if (r != null && r.lostRaces > 0)
         Text("Google Health was using your Fitbit Air, so AirBuzz waited and tried again.", style = Type.small, color = a.muted)
 }
 
