@@ -39,7 +39,7 @@ jobs:
       - name: No Amp account address in commits
         run: |
           git fetch --quiet --unshallow --no-tags origin || true
-          if git log --format='%an %ae %cn %ce %B' | grep -i 'mrga\.xyz'; then
+          if git log --format='%h %ae %ce %(trailers:key=Co-authored-by,valueonly,separator=%x20)' | grep -i '@mrga\.xyz'; then
             echo "::error::A commit carries an mrga.xyz address. Credit Davor as Davor Tomic <1573304+davort@users.noreply.github.com>, and reset old clones to origin/main."
             exit 1
           fi
