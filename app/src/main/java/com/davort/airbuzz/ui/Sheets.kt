@@ -299,7 +299,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     Sheet("Who can ring your Fitbit\u00A0Air", onClose) {
-        CallChoice(s.callMode, s.people) { m -> engine.store.update { it.copy(callMode = m) } }
+        CallChoice(s.callMode, s.people, icon = true) { m -> engine.store.update { it.copy(callMode = m) } }
         ScrollUnderFade {
             // Only Chosen has a list.
             if (s.callMode == CallMode.CHOSEN) {
@@ -353,30 +353,40 @@ fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
  * the who in the accent, and a quieter line for every other call. Onboarding's step and the sheet on Home share it.
  */
 @Composable
-fun CallChoice(mode: CallMode, people: List<Person>, onSelect: (CallMode) -> Unit) {
+fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSelect: (CallMode) -> Unit) {
     val a = LocalAirColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column {
         PillChoice(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), mode, onSelect)
         val names = people.map { it.name }
+        // A call always rings the phone; the caption says which calls won't also ring the Fitbit Air (Davor, 15 Nov).
+        val other = "Other calls will ring only your\u00A0phone."
         val (before, who, rest) = when (mode) {
             CallMode.CHOSEN -> when (names.size) {
-                0 -> Triple("Only ", "the people you add", "Other calls will stay on your\u00A0phone.")
-                1 -> Triple("Only calls from ", names[0], "Other calls will stay on your\u00A0phone.")
-                2 -> Triple("Only calls from ", "${names[0]} and ${names[1]}", "Other calls will stay on your\u00A0phone.")
+                0 -> Triple("Only ", "the people you add", other)
+                1 -> Triple("Only calls from ", names[0], other)
+                2 -> Triple("Only calls from ", "${names[0]} and ${names[1]}", other)
                 // As on Home's Calls rule.
-                else -> Triple("Only calls from ", "${names[0]} and ${names.size - 1}\u00A0more", "Other calls will stay on your\u00A0phone.")
+                else -> Triple("Only calls from ", "${names[0]} and ${names.size - 1}\u00A0more", other)
             }
-            CallMode.CONTACTS -> Triple("", "Everyone in your contacts", "Unsaved numbers will stay on your\u00A0phone.")
+            CallMode.CONTACTS -> Triple("", "Everyone in your contacts", "Numbers you haven't saved will ring only your\u00A0phone.")
             CallMode.ANYONE -> Triple("", "Every call", "Even from numbers you haven't\u00A0saved.")
         }
-        // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes.
-        Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).animateContentSize(tween(220, easing = Motion.InOut))
-            .semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes. The sheet
+        // on Home shows the choice's icon above it; onboarding's step already has its own icon, so it shows none.
+        Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = if (icon) 28.dp else 24.dp, bottom = 8.dp)
+            .animateContentSize(tween(220, easing = Motion.InOut)).semantics(mergeDescendants = true) {}) {
+            if (icon) {
+                Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
+                    CurveIcon(when (mode) { CallMode.CHOSEN -> Curve.PEOPLE; CallMode.CONTACTS -> Curve.CONTACTS; CallMode.ANYONE -> Curve.CALLING }, 24.dp, a.ink, 1.8f)
+                }
+                Gap(16)
+            }
             Text(buildAnnotatedString {
                 append(before)
                 withStyle(SpanStyle(color = a.accent, fontWeight = FontWeight(500))) { append(who) }
                 append(" will ring your Fitbit\u00A0Air.")
             }, style = Type.body.copy(fontSize = 20.sp, lineHeight = 28.sp, lineBreak = LineBreak.Heading), color = a.ink)
+            Gap(6)
             Text(rest, style = Type.small.copy(lineBreak = LineBreak.Heading), color = a.muted)
         }
     }
