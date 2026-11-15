@@ -87,6 +87,24 @@ object Setup {
         add(Check("Test buzz", "Checks the whole path to your Fitbit Air.", testedOk, "Test", Fix.TEST))
     }
 
+    /** Google Health, the app that pairs the Fitbit Air (formerly the Fitbit app, hence its package name). */
+    private const val GOOGLE_HEALTH = "com.fitbit.FitbitMobile"
+
+    /** Visible through the launcher query in the manifest, so no extra package query is needed. */
+    fun hasGoogleHealth(c: Context) = c.packageManager.getLaunchIntentForPackage(GOOGLE_HEALTH) != null
+
+    /** Opens Google Health, or its Play page when it isn't installed. */
+    fun openGoogleHealth(c: Context) {
+        val app = c.packageManager.getLaunchIntentForPackage(GOOGLE_HEALTH)
+        val play = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$GOOGLE_HEALTH"))
+        try { c.startActivity(app ?: play) } catch (_: Exception) {
+            c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$GOOGLE_HEALTH")))
+        }
+    }
+
+    /** AirBuzz's App info page, where its permissions can be changed after Android stops asking. */
+    fun appDetails(c: Context) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${c.packageName}"))
+
     fun listenerSettings(c: Context): Intent =
         if (Build.VERSION.SDK_INT >= 30) Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
             .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, ComponentName(c, AlertListener::class.java).flattenToString())
@@ -114,7 +132,12 @@ object Setup {
             override fun onDeviceFound(sender: IntentSender) = launch(sender)
             override fun onAssociationPending(sender: IntentSender) = launch(sender)
             override fun onAssociationCreated(info: AssociationInfo) {}
-            override fun onFailure(error: CharSequence?) = failed(error?.toString() ?: "Android couldn't find your Fitbit Air.")
+            // Android reports every way its dialog closes without linking here, as a code such as "user_rejected",
+            // "canceled" or "discovery_timeout" (#16), so people see plain words instead.
+            override fun onFailure(error: CharSequence?) = failed(when (error?.toString()) {
+                "user_rejected", "canceled" -> "Not linked yet. You can link your Fitbit\u00A0Air any time from Settings → Setup checklist."
+                else -> "Android couldn't find your Fitbit\u00A0Air. You can link it any time from Settings → Setup checklist."
+            })
         }
         if (Build.VERSION.SDK_INT >= 33) cdm.associate(request, activity.mainExecutor, callback)
         else @Suppress("DEPRECATION") cdm.associate(request, callback, null)

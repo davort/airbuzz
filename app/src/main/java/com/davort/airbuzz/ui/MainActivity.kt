@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.core.app.ActivityCompat
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,8 +29,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -95,6 +97,9 @@ import com.davort.airbuzz.rules.Person
 import com.davort.airbuzz.rules.Rules
 import com.davort.airbuzz.rules.Settings as AirSettings
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.flow.collectLatest
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
@@ -313,8 +318,23 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 // Pressing the day tints a panel just outside it and shrinks it a little, without a ripple. The ›
                 // after "Today" nudges right twice on the first Home that shows it, once ever, to hint that the
                 // line opens Activity.
+                // Home scrolls, so Compose reports a quick tap's press only as the finger lifts, and Activity then covers
+                // Home at once. So the pressed look holds for at least 180 ms, and Activity opens 100 ms after the tap,
+                // once the tint has come in.
+                val scope = rememberCoroutineScope()
                 val interaction = remember { MutableInteractionSource() }
-                val pressed by interaction.collectIsPressedAsState()
+                var pressed by remember { mutableStateOf(false) }
+                LaunchedEffect(interaction) {
+                    var since = 0L
+                    interaction.interactions.collectLatest { i ->
+                        when (i) {
+                            is PressInteraction.Press -> { since = SystemClock.uptimeMillis(); pressed = true }
+                            is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                delay(180 - (SystemClock.uptimeMillis() - since)); pressed = false
+                            }
+                        }
+                    }
+                }
                 val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
                 val panel by animateColorAsState(if (pressed) a.tint else a.tint.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
                 val nudge = remember { Animatable(0f) }
@@ -332,7 +352,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                         val x = 10.dp.toPx(); val y = 6.dp.toPx()
                         drawRoundRect(panel, Offset(-x, -y), Size(size.width + 2 * x, size.height + 2 * y), CornerRadius(12.dp.toPx()))
                     }
-                    .clickable(interaction, indication = null, onClickLabel = "Open Activity") { go(Screen.ACTIVITY) },
+                    .clickable(interaction, indication = null, onClickLabel = "Open Activity") { scope.launch { delay(100); go(Screen.ACTIVITY) } },
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     BuzzStrip(entries, start, height = 44.dp, tall = 26.dp, short = 9.dp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -651,14 +671,20 @@ fun openSettings(context: android.content.Context, intent: Intent) {
 
 /** Requests that need an Activity: runtime permissions and the companion device dialog. */
 @Composable
-fun rememberFixer(go: (Screen) -> Unit, onError: (String) -> Unit): (Fix) -> Unit {
+fun rememberFixer(go: (Screen) -> Unit, onBlocked: () -> Unit = {}, onError: (String) -> Unit): (Fix) -> Unit {
     val context = LocalContext.current
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // After a second "Don't allow", Android answers no at once without showing its dialog; [onBlocked] hears about it
+    // so the page can point to App info instead (#16).
+    var asked by remember { mutableStateOf("") }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val activity = context as? ComponentActivity
+        if (!granted && activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, asked)) onBlocked()
+    }
     val sender = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {}
     return { fix ->
         when (fix) {
-            Fix.NEARBY -> if (Build.VERSION.SDK_INT >= 31) permission.launch(Manifest.permission.BLUETOOTH_CONNECT)
-            Fix.NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            Fix.NEARBY -> if (Build.VERSION.SDK_INT >= 31) { asked = Manifest.permission.BLUETOOTH_CONNECT; permission.launch(asked) }
+            Fix.NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) { asked = Manifest.permission.POST_NOTIFICATIONS; permission.launch(asked) }
             Fix.LISTENER -> openSettings(context, Setup.listenerSettings(context))
             Fix.PAIR -> openSettings(context, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
             Fix.AUTOSTART -> openSettings(context, Setup.autostartSettings(context))

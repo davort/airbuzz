@@ -84,7 +84,8 @@ for mode in LIGHT DARK; do
   put activity.json files/activity.json
   "${adb[@]}" shell run-as $pkg touch files/store-demo
   "${adb[@]}" shell am start -n $pkg/.ui.MainActivity >/dev/null
-  sleep 3
+  # The splash and the pebble intro take about 5 s on a cold start.
+  sleep 7
   shot "1-home-$m.png"
   tap "Who can ring"; shot "2-who-can-ring-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "Apps that buzz"; shot "3-apps-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2

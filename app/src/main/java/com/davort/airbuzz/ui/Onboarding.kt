@@ -92,6 +92,9 @@ fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
     // AirBuzz is already on at "You're set", so Back finishes setup like its button.
     BackHandler(page == DONE) { engine.store.update { it.copy(onboarded = true) } }
     val next = { page = (page + 1).coerceAtMost(DONE) }
+    // Set when someone continues past step 1 without a Fitbit Air (Play reviewers, or one still in its box, #16):
+    // step 2 can't link it and Feel it can't buzz it, so it goes from the apps step to "You're set".
+    var noAir by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 20.dp)) {
         // The bar's room is kept on every page, so the content below never jumps when it comes or goes (issue #27).
         // It drops in just after the first step starts sliding, and its first segment fills as it arrives.
@@ -114,11 +117,11 @@ fun OnboardingScreen(engine: Engine, s: Settings, openApps: () -> Unit) {
             Column(Modifier.fillMaxSize()) {
                 when (shown) {
                     INTRO -> Intro(introPlayed, { introPlayed = true }) { introPlayed = true; next() }
-                    1 -> FindAir(next)
-                    2 -> KeepRunning(next)
+                    1 -> FindAir({ noAir = false; next() }) { noAir = true; next() }
+                    2 -> KeepRunning(noAir, next)
                     3 -> SeeAlerts(next)
                     4 -> WhoCanRing(engine, s, next)
-                    5 -> WhichApps(engine, s, openApps, next)
+                    5 -> WhichApps(engine, s, openApps) { if (noAir) { turnOn(engine); page = DONE } else next() }
                     6 -> FeelIt(engine, next)
                     else -> YoureSet(engine, s)
                 }
@@ -179,11 +182,14 @@ private fun ColumnScope.Step(foot: @Composable ColumnScope.() -> Unit, gap: Int 
 
 /** The main button at the bottom, with an optional quiet text action under it. */
 @Composable
-private fun StepFoot(main: String, onMain: () -> Unit, enabled: Boolean = true, link: String? = null, onLink: () -> Unit = {}) {
+private fun StepFoot(main: String, onMain: () -> Unit, enabled: Boolean = true, link: String? = null, onLink: () -> Unit = {}, linkSaid: String? = null) {
     Pill(main, onMain, Modifier.fillMaxWidth(), enabled = enabled)
     if (link != null) {
+        // A 12 dp gap, so a thumb on the button's edge can't land on the text action's 48 dp target.
+        Spacer(Modifier.height(12.dp))
         Text(link, style = Type.bodyMedium, color = LocalAirColors.current.ink, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onLink).padding(vertical = 12.dp))
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onLink).padding(vertical = 12.dp)
+                .then(if (linkSaid != null) Modifier.semantics { contentDescription = linkSaid } else Modifier))
     }
 }
 
@@ -216,9 +222,13 @@ private fun Done(text: String) {
 
 /** One row of a step's checklist: a title over a small label, and its state or button on the right. */
 @Composable
-private fun CheckRow(title: String, label: String, end: @Composable () -> Unit) {
+private fun CheckRow(title: String, label: String, muted: Boolean = false, end: @Composable () -> Unit) {
+    val a = LocalAirColors.current
     GroupRow(vertical = 12.dp) {
-        TwoLine(title, Modifier.weight(1f)) { Text(label.uppercase(), style = Type.label, color = LocalAirColors.current.muted) }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = Type.bodyMedium, color = if (muted) a.muted else a.ink)
+            Text(label.uppercase(), style = Type.label, color = a.muted)
+        }
         end()
     }
 }
@@ -295,18 +305,25 @@ private fun ColumnScope.Intro(played: Boolean, onPlayed: () -> Unit, next: () ->
 }
 
 @Composable
-private fun ColumnScope.FindAir(next: () -> Unit) {
+private fun ColumnScope.FindAir(next: () -> Unit, skip: () -> Unit) {
     val context = LocalContext.current
     val tick = rememberResumeTick()
-    val fixer = rememberFixer({}) {}
+    // Android stops showing its dialog after a second "Don't allow"; then the step points to App info instead (#16).
+    var blocked by rememberSaveable { mutableStateOf(false) }
+    val fixer = rememberFixer({}, onBlocked = { blocked = true }) {}
     val nearby = remember(tick) { Setup.hasNearby(context) }
     val on = remember(tick) { Setup.bluetoothOn(context) }
     val found = remember(tick) { Setup.bondedAirAddress(context) != null }
+    val health = remember(tick) { Setup.hasGoogleHealth(context) }
+    // Whenever step 1 can't finish, people can go on without a Fitbit Air and pair it later (#16).
+    @Composable fun Foot(main: String, onMain: () -> Unit) =
+        StepFoot(main, onMain, link = "Continue without it", onLink = skip, linkSaid = "Continue without a Fitbit\u00A0Air")
     Step({
         when {
+            !nearby && blocked -> Foot("Open settings") { openSettings(context, Setup.appDetails(context)) }
             !nearby -> StepFoot("Find my Fitbit\u00A0Air", { fixer(Fix.NEARBY) })
-            !on -> StepFoot("Turn on Bluetooth", { fixer(Fix.PAIR) })
-            !found -> StepFoot("Open Bluetooth", { fixer(Fix.PAIR) })
+            !on -> Foot("Turn on Bluetooth") { fixer(Fix.PAIR) }
+            !found -> Foot(if (health) "Open Google Health" else "Get Google Health") { Setup.openGoogleHealth(context) }
             else -> StepFoot("Next", next)
         }
     }) {
@@ -314,9 +331,13 @@ private fun ColumnScope.FindAir(next: () -> Unit) {
             if (found) AirPebble(64.dp) else IconCircle(Curve.BLUETOOTH)
         }
         when {
+            !nearby && blocked -> Group(listOf({ Column {
+                CheckRow("Nearby devices is off", "Needed to find your Fitbit Air") {}
+                PagePath(listOf("Tap " to "Permissions", "Tap " to "Nearby devices", "Choose " to "Allow"))
+            } }))
             !nearby -> AndroidAsks("Allow AirBuzz to find, connect to, and determine the relative position of nearby devices?")
             !on -> Group(listOf({ CheckRow("Bluetooth is off", "Your Fitbit Air needs it") {} }))
-            !found -> Group(listOf({ CheckRow("No Fitbit Air paired", "Pair it in Google Health first") {} }))
+            !found -> Group(listOf({ CheckRow("No Fitbit Air paired yet", "Pair it in Google Health first") {} }))
             else -> Group(listOf({ CheckRow("Fitbit Air", "Paired in Google Health") { Done("Found") } }))
         }
     }
@@ -327,7 +348,7 @@ private fun ColumnScope.FindAir(next: () -> Unit) {
  * battery-optimisation exemption, which App info sets; the path to it is spelled out under the row until it's set.
  */
 @Composable
-private fun ColumnScope.KeepRunning(next: () -> Unit) {
+private fun ColumnScope.KeepRunning(noAir: Boolean, next: () -> Unit) {
     val a = LocalAirColors.current
     val context = LocalContext.current
     val tick = rememberResumeTick()
@@ -338,20 +359,22 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
     val allowed = remember(tick) { Setup.ignoresBatteryOptimizations(context) }
     // Linking can fail when Android doesn't find the Air, and a phone may not report the battery setting; then the
     // step lets you go on (after a visit to the page) and Setup keeps the row.
-    Step({ StepFoot("Next", next, enabled = (linked || error != null) && (allowed || opened)) }) {
+    Step({ StepFoot("Next", next, enabled = (linked || error != null || noAir) && (allowed || opened)) }) {
         StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit\u00A0Air.") {
             IconCircle(Curve.LINK)
         }
         val rows = listOf<@Composable () -> Unit>(
-            { CheckRow("Link your Fitbit Air", "Android asks once") {
-                if (linked) Done("Linked") else Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
+            // Without a Fitbit Air there is nothing to link yet; the Setup checklist offers it once one is paired.
+            { CheckRow("Link your Fitbit Air", if (noAir && !linked) "After you pair it" else "Android asks once", muted = noAir && !linked) {
+                if (linked) Done("Linked") else if (!noAir) Pill("Link", { error = null; fixer(Fix.COMPANION) }, small = true)
             } },
             // One task, one panel (issue #28): the path to the setting sits in the same panel as its row.
             { Column {
                 CheckRow("Allow background activity", if (Setup.isColorOs) "${Setup.maker} · Battery usage" else "${Setup.maker} · Battery") {
                     if (allowed) Done("Allowed") else Pill("Open", { opened = true; openSettings(context, Setup.autostartSettings(context)) }, small = true)
                 }
-                if (!allowed) BackgroundPath()
+                if (!allowed) PagePath(if (Setup.isColorOs) listOf("Tap " to "Battery usage", "Choose " to "Allow background activity", "Tap " to "Allow")
+                    else listOf("Tap " to "Battery", "Choose " to "Unrestricted"))
             } },
         )
         Group(rows)
@@ -359,14 +382,15 @@ private fun ColumnScope.KeepRunning(next: () -> Unit) {
     }
 }
 
-/** What to tap on the page Open shows. ColorOS's path was checked on Davor's phone; other phones get a general hint. */
+/**
+ * What to tap on the page a button opens, under its row in the same panel. The background path on ColorOS was checked
+ * on Davor's phone; other phones get a general hint.
+ */
 @Composable
-private fun BackgroundPath() {
+private fun PagePath(lines: List<Pair<String, String>>) {
     val a = LocalAirColors.current
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("On the page that opens:", style = Type.small, color = a.muted, modifier = Modifier.padding(bottom = 2.dp))
-        val lines = if (Setup.isColorOs) listOf("Tap " to "Battery usage", "Choose " to "Allow background activity", "Tap " to "Allow")
-        else listOf("Tap " to "Battery", "Choose " to "Unrestricted")
         lines.forEachIndexed { i, (verb, place) ->
             Row(verticalAlignment = Alignment.Top) {
                 Text("${i + 1}", style = Type.label.copy(lineHeight = Type.small.lineHeight), color = a.muted, modifier = Modifier.width(26.dp))
@@ -476,11 +500,7 @@ private fun ColumnScope.FeelIt(engine: Engine, done: () -> Unit) {
     val run by engine.test.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { engine.clearTest() }
     DisposableEffect(Unit) { onDispose { engine.clearTest() } }
-    val turnOn = {
-        engine.store.update { it.copy(pausedUntil = 0L) }
-        engine.setEnabled(true)
-        done()
-    }
+    val turnOn = { turnOn(engine); done() }
     val again = { engine.clearTest(); engine.testBuzz() }
     val r = run?.result
     val buzzed = run?.buzzedMs
@@ -506,6 +526,12 @@ private fun ColumnScope.FeelIt(engine: Engine, done: () -> Unit) {
         Text("Feel it", style = Type.heading, color = a.heading, modifier = Modifier.padding(top = 4.dp).semantics { heading() })
         TestBuzzReadout(engine, button = "Test buzz")
     }
+}
+
+/** Setup ends with AirBuzz on and not paused, after Feel it or straight from the apps step without a Fitbit Air. */
+private fun turnOn(engine: Engine) {
+    engine.store.update { it.copy(pausedUntil = 0L) }
+    engine.setEnabled(true)
 }
 
 @Composable
@@ -541,5 +567,5 @@ fun setUpSummary(s: Settings, label: (String) -> String): String {
         val apps = list(s.apps.map(label).sortedBy { it.lowercase() }, if (s.apps.size == 3) "more app" else "more apps")
         "Messages from $apps buzz ${if (calls != null) "it" else "your Fitbit\u00A0Air"} ${tapsWord(s.messageTaps)}."
     }
-    return listOfNotNull(calls, messages).joinToString(" ").ifEmpty { "AirBuzz is on. Choose who rings and which apps buzz from Home." }
+    return listOfNotNull(calls, messages).joinToString(" ").ifEmpty { "AirBuzz is on. Choose who rings and which apps buzz from\u00A0Home." }
 }
