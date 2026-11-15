@@ -105,7 +105,9 @@ private val Screen.depth get() = when (this) {
     Screen.LICENCE -> 4
 }
 
-/** Where Back goes from each page. */
+private val ENTERED_FROM_SEVERAL = setOf(Screen.ACTIVITY, Screen.TEST, Screen.SETUP)
+
+/** Where Back goes from each page, unless it remembers the page that opened it. */
 private val Screen.parent get() = when (this) {
     Screen.APPEARANCE, Screen.SETUP, Screen.ABOUT -> Screen.SETTINGS
     Screen.LICENCES -> Screen.ABOUT
@@ -157,8 +159,15 @@ fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
     var licence by rememberSaveable { mutableIntStateOf(0) }
-    val go: (Screen) -> Unit = { screen = it }
-    BackHandler(screen != Screen.HOME) { go(screen.parent) }
+    // Activity, Test buzz and the setup checklist each have more than one way in, so Back returns to the page that
+    // opened them, such as Settings rather than Home (issue #10).
+    var from by rememberSaveable { mutableStateOf(mapOf<Screen, Screen>()) }
+    val go: (Screen) -> Unit = { to ->
+        if (to in ENTERED_FROM_SEVERAL && to != screen) from = from + (to to screen)
+        screen = to
+    }
+    val back: () -> Unit = { screen = from[screen] ?: screen.parent }
+    BackHandler(screen != Screen.HOME) { back() }
     val open: (SheetKind) -> Unit = { sheet = it }
     val context = LocalContext.current
     val resumed = rememberResumeTick()
@@ -172,7 +181,7 @@ fun App(engine: Engine, settings: AirSettings) {
         // Home and Activity are pages: a deeper page slides in from the right, Back slides it away (decision 40).
         AnimatedContent(if (inSheet) Screen.HOME else screen, label = "page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
             when (shown) {
-                Screen.ACTIVITY -> ActivityScreen(engine, open) { go(Screen.HOME) }
+                Screen.ACTIVITY -> ActivityScreen(engine, open, back)
                 else -> Home(engine, settings, sheet, go, open)
             }
         }
@@ -185,8 +194,8 @@ fun App(engine: Engine, settings: AirSettings) {
         AnimatedContent(sheetPage[0], Modifier.weight(1f), label = "sheet page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
             when (shown) {
                 Screen.APPEARANCE -> AppearanceScreen(engine, settings) { go(Screen.SETTINGS) }
-                Screen.TEST -> TestBuzzScreen(engine) { go(Screen.HOME) }
-                Screen.SETUP -> SetupScreen(engine, go) { go(Screen.SETTINGS) }
+                Screen.TEST -> TestBuzzScreen(engine, back)
+                Screen.SETUP -> SetupScreen(engine, go, back)
                 Screen.ABOUT -> AboutScreen(go) { go(Screen.SETTINGS) }
                 Screen.LICENCES -> LicencesScreen({ licence = it; go(Screen.LICENCE) }) { go(Screen.ABOUT) }
                 Screen.LICENCE -> LicenceScreen(Licences[licence]) { go(Screen.LICENCES) }
