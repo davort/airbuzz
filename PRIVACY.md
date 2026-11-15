@@ -8,12 +8,12 @@ AirBuzz is published by Misek AB. For questions about this policy or your data, 
 
 Everything AirBuzz keeps stays on your phone, in storage only AirBuzz can read. Android's backup and phone-to-phone transfer are turned off for AirBuzz, so none of it is copied to the cloud or to a new phone.
 
-- **Alerts.** AirBuzz reads your notifications to recognise calls and messages, so it can make your Air buzz. For each one it keeps the app, the caller or chat name, the caller's number when the call shows one, and what it did (for example "buzzed" or "skipped during quiet times"). It keeps these for one week, then deletes them.
+- **Alerts.** AirBuzz reads your notifications to recognise calls and messages, so it can make your Fitbit Air buzz. For each one it keeps the app, the caller or chat name, the caller's number when the call shows one, and what it did (for example "buzzed" or "skipped during quiet times"). It keeps these for one week, then deletes them.
 - **Message text.** AirBuzz never stores the text of a message.
 - **The people you choose.** You pick people with Android's contact picker. AirBuzz keeps only their names and phone numbers. It cannot read the rest of your contacts.
 - **Callers you hide from "Called recently"**: their number, or their name when there is none, so they stay hidden.
 - **Your settings**, such as the apps you choose, quiet times, the vibration strength and the look of the app.
-- **A step log** that helps find out why an alert didn't buzz. It records which apps posted notifications and when, what AirBuzz did, timings, whether Bluetooth is on, and the battery levels of your phone and Air. It never contains message text, caller names or numbers. It keeps one week of steps, and never more than the last 1,000.
+- **A step log** that helps find out why an alert didn't buzz. It records which apps posted notifications and when, what AirBuzz did, timings, whether Bluetooth is on, and the battery levels of your phone and Fitbit Air. It never contains message text, caller names or numbers. It keeps one week of steps, and never more than the last 1,000.
 
 ## What leaves your phone
 

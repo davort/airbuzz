@@ -10,7 +10,7 @@ AirBuzz is free. It is open source under the GNU General Public License, version
 
 ## Provided as is
 
-AirBuzz is provided as is, without any warranty, as the GPL also says. A buzz can be late or can fail, for example when Bluetooth is off, your Air is out of reach, or Google Health is using your Air. To the extent the law allows, Misek AB is not liable for anything that results from using AirBuzz, including alerts that didn't reach your Air. Nothing in these terms limits rights you have by law as a consumer.
+AirBuzz is provided as is, without any warranty, as the GPL also says. A buzz can be late or can fail, for example when Bluetooth is off, your Fitbit Air is out of reach, or Google Health is using it. To the extent the law allows, Misek AB is not liable for anything that results from using AirBuzz, including alerts that didn't reach your Fitbit Air. Nothing in these terms limits rights you have by law as a consumer.
 
 ## Not for medical, safety or emergency use
 
