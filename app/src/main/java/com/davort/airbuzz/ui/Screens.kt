@@ -622,7 +622,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
                         if (drag < -60f) daysAgo = (daysAgo - 1).coerceAtLeast(0)
                     },
                 ) { _, amount -> drag += amount }
-            }, height = 44.dp, tall = 26.dp, short = 9.dp, hours = true)
+            }, height = 44.dp, tall = 26.dp, short = 9.dp, hours = true, line = if (daysAgo == 0) Modifier.todayLine() else Modifier)
         }
         if (!compact) Totals(buzzed, ignored, 40, 44, 40, Alignment.Start)
         Text("AirBuzz saw ${day.size} calls and messages $word. Ignored ones reached your phone, but your rules kept them off your wrist. Tap an app to let it buzz.",

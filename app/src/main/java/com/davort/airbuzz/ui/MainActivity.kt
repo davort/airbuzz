@@ -1,5 +1,8 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -167,6 +170,7 @@ fun rememberNow(everyMs: Long = 30_000): Long {
     return now
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
@@ -191,11 +195,15 @@ fun App(engine: Engine, settings: AirSettings) {
             OnboardingScreen(engine, settings) { sheet = SheetKind.APPS }
             return@Box
         }
-        // Home and Activity are pages: a deeper page slides in from the right, Back slides it away (decision 40).
-        AnimatedContent(if (inSheet) Screen.HOME else screen, label = "page", transitionSpec = { pageChange(targetState.depth > initialState.depth) }) { shown ->
-            when (shown) {
-                Screen.ACTIVITY -> ActivityScreen(engine, open, back)
-                else -> Home(engine, settings, sheet, go, open)
+        // Home and Activity are pages; the day's graph moves between them and the rest fades (see graphPageChange).
+        SharedTransitionLayout {
+            AnimatedContent(if (inSheet) Screen.HOME else screen, label = "page", transitionSpec = { graphPageChange(targetState.depth > initialState.depth) }) { shown ->
+                CompositionLocalProvider(LocalPageShare provides PageShare(this@SharedTransitionLayout, this, screen == Screen.ACTIVITY)) {
+                    when (shown) {
+                        Screen.ACTIVITY -> ActivityScreen(engine, open, back)
+                        else -> Home(engine, settings, sheet, go, open)
+                    }
+                }
             }
         }
     }
@@ -315,9 +323,9 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             } else {
                 val start = dayStart(now = now)
                 val today = entries.filter { it.time >= start && it.kind != Kind.TEST }
-                // Pressing the day tints a panel just outside it and shrinks it a little, without a ripple. The ›
-                // after "Today" nudges right twice on the first Home that shows it, once ever, to hint that the
-                // line opens Activity.
+                // Pressing the day tints a panel just outside it in the pressed accent and shrinks it to 97 %, without a
+                // ripple, firm enough to read as a tap (Davor, 15 Nov). The › after "Today" nudges right twice on the
+                // first Home that shows it, once ever, to hint that the line opens Activity.
                 // Home scrolls, so Compose reports a quick tap's press only as the finger lifts, and Activity then covers
                 // Home at once. So the pressed look holds for at least 180 ms, and Activity opens 100 ms after the tap,
                 // once the tint has come in.
@@ -335,8 +343,8 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                         }
                     }
                 }
-                val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
-                val panel by animateColorAsState(if (pressed) a.tint else a.tint.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
+                val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
+                val panel by animateColorAsState(if (pressed) a.tintPressed else a.tintPressed.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
                 val nudge = remember { Animatable(0f) }
                 if (!s.activityHinted) LaunchedEffect(Unit) {
                     delay(1_000)
@@ -354,7 +362,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                     }
                     .clickable(interaction, indication = null, onClickLabel = "Open Activity") { scope.launch { delay(100); go(Screen.ACTIVITY) } },
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BuzzStrip(entries, start, height = 44.dp, tall = 26.dp, short = 9.dp)
+                    BuzzStrip(entries, start, height = 44.dp, tall = 26.dp, short = 9.dp, line = Modifier.todayLine())
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Label("Today")
                         HGap(4)
@@ -674,11 +682,16 @@ fun openSettings(context: android.content.Context, intent: Intent) {
 fun rememberFixer(go: (Screen) -> Unit, onBlocked: () -> Unit = {}, onError: (String) -> Unit): (Fix) -> Unit {
     val context = LocalContext.current
     // After a second "Don't allow", Android answers no at once without showing its dialog; [onBlocked] hears about it
-    // so the page can point to App info instead (#16).
+    // so the page can point to App info instead (#16). A refusal with no rationale alone isn't enough: dismissing the
+    // first dialog without choosing looks the same, and Android still asks next time. So a first "Don't allow" (which
+    // turns the rationale on) is remembered, and only a no-rationale refusal after it counts as blocked.
     var asked by remember { mutableStateOf("") }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val activity = context as? ComponentActivity
-        if (!granted && activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, asked)) onBlocked()
+        val activity = context as? ComponentActivity ?: return@rememberLauncherForActivityResult
+        if (granted) return@rememberLauncherForActivityResult
+        val prefs = activity.getSharedPreferences("permissions", android.content.Context.MODE_PRIVATE)
+        if (ActivityCompat.shouldShowRequestPermissionRationale(activity, asked)) prefs.edit().putBoolean(asked, true).apply()
+        else if (prefs.getBoolean(asked, false)) onBlocked()
     }
     val sender = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {}
     return { fix ->

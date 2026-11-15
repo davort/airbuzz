@@ -1,5 +1,12 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.animation.animateContentSize
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -292,16 +299,9 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     Sheet("Who can ring your Fitbit\u00A0Air", onClose) {
-        Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
-            engine.store.update { it.copy(callMode = m) }
-        }
+        CallChoice(s.callMode, s.people) { m -> engine.store.update { it.copy(callMode = m) } }
         ScrollUnderFade {
-            // Only Chosen has a list; Contacts and Anyone say who rings in one sentence, with room around it.
-            when (s.callMode) {
-                CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Fitbit Air.", roomy = false)
-                CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Fitbit Air. Numbers you haven't saved stay on your phone.", roomy = true)
-                CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Fitbit Air, including numbers you haven't saved.", roomy = true)
-            }
+            // Only Chosen has a list.
             if (s.callMode == CallMode.CHOSEN) {
                 Column {
                     Label(if (s.people.size >= 5) "Your people · ${s.people.size}" else "Your people")
@@ -348,13 +348,37 @@ fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
 }
 
 /** An icon in a soft circle beside one sentence that says what the chosen mode does. */
+/**
+ * Who can ring, as one choice and what it will do (Davor, 15 Nov): the choice, then one future-tense sentence with
+ * the who in the accent, and a quieter line for every other call. Onboarding's step and the sheet on Home share it.
+ */
 @Composable
-fun Explainer(curve: Curve, text: String, roomy: Boolean, circle: Color = LocalAirColors.current.bg) {
+fun CallChoice(mode: CallMode, people: List<Person>, onSelect: (CallMode) -> Unit) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().padding(top = if (roomy) 20.dp else 8.dp, bottom = if (roomy) 20.dp else 0.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.size(44.dp).clip(CircleShape).background(circle), contentAlignment = Alignment.Center) { CurveIcon(curve, 22.dp, a.ink, 1.8f) }
-        Text(text, style = Type.body, color = a.ink, modifier = Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        PillChoice(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), mode, onSelect)
+        val names = people.map { it.name }
+        val (before, who, rest) = when (mode) {
+            CallMode.CHOSEN -> when (names.size) {
+                0 -> Triple("Only ", "the people you add", "Other calls will stay on your\u00A0phone.")
+                1 -> Triple("Only calls from ", names[0], "Other calls will stay on your\u00A0phone.")
+                2 -> Triple("Only calls from ", "${names[0]} and ${names[1]}", "Other calls will stay on your\u00A0phone.")
+                // As on Home's Calls rule.
+                else -> Triple("Only calls from ", "${names[0]} and ${names.size - 1}\u00A0more", "Other calls will stay on your\u00A0phone.")
+            }
+            CallMode.CONTACTS -> Triple("", "Everyone in your contacts", "Unsaved numbers will stay on your\u00A0phone.")
+            CallMode.ANYONE -> Triple("", "Every call", "Even from numbers you haven't\u00A0saved.")
+        }
+        // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).animateContentSize(tween(220, easing = Motion.InOut))
+            .semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(buildAnnotatedString {
+                append(before)
+                withStyle(SpanStyle(color = a.accent, fontWeight = FontWeight(500))) { append(who) }
+                append(" will ring your Fitbit\u00A0Air.")
+            }, style = Type.body.copy(fontSize = 20.sp, lineHeight = 28.sp, lineBreak = LineBreak.Heading), color = a.ink)
+            Text(rest, style = Type.small.copy(lineBreak = LineBreak.Heading), color = a.muted)
+        }
     }
 }
 

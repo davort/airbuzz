@@ -1,5 +1,7 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.AnimationVector1D
@@ -333,6 +335,33 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
 }
 
 /**
+ * A choice that decides what will happen, such as who can ring (Davor, 15 Nov). The options sit on a track and the
+ * chosen one is filled in ink like the main buttons, so it reads as a decision rather than a filter. The fill slides
+ * to a new choice, and the 48 dp track keeps every option a full tap target.
+ */
+@Composable
+fun <T> PillChoice(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    val a = LocalAirColors.current
+    val index = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    val at by animateFloatAsState(index.toFloat(), tween(220, easing = Motion.InOut), label = "choice")
+    BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(a.bg).padding(4.dp)) {
+        val gap = 4.dp
+        val w = (maxWidth - gap * (options.size - 1)) / options.size
+        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(a.ink))
+        Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            options.forEachIndexed { i, (value, label) ->
+                val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
+                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, role = Role.RadioButton) { onSelect(value) },
+                    contentAlignment = Alignment.Center) {
+                    Text(label, style = if (value == selected) Type.smallMedium else Type.small, color = lerp(a.muted, a.onInk, on),
+                        maxLines = 1, softWrap = false)
+                }
+            }
+        }
+    }
+}
+
+/**
  * The Strength choice (#15): two tiles, each with the pebble and its rings. Gentle has one ring at 70%, Strong two
  * (the outer at 45%). The chosen tile is tinted, outlined and ringed in the accent, with a check; the other is grey.
  * The pebble has no rim here, in dark mode too (Davor, 14 Nov). Choosing a tile plays its rings (#29): the pebble
@@ -613,9 +642,10 @@ fun BarMark(fate: Fate) {
     }
 }
 
-/** A day's alerts on a 24-hour line. Tests are left out. */
+/** A day's alerts on a 24-hour line. Tests are left out. [line] goes on the line alone, without the hour labels. */
 @Composable
-fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifier, height: Dp = 28.dp, tall: Dp = 16.dp, short: Dp = 6.dp, hours: Boolean = false) {
+fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifier, height: Dp = 28.dp, tall: Dp = 16.dp, short: Dp = 6.dp,
+    hours: Boolean = false, line: Modifier = Modifier) {
     val a = LocalAirColors.current
     val day = entries.filter { it.time in dayStart until dayStart + 86_400_000L && it.kind != Kind.TEST }
     // Bars already there when the strip appears stand still; one that arrives later grows from the axis (decision 40).
@@ -629,7 +659,7 @@ fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifie
         }
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Canvas(line.fillMaxWidth().height(height)) {
             val w = size.width - 3.dp.toPx()
             val axis = size.height - 5.dp.toPx()
             drawRect(a.line, Offset(0f, axis - 1.dp.toPx()), androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))

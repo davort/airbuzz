@@ -438,20 +438,14 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls buzz it every second until you\u00A0answer.") {
+        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls will buzz it every second until you\u00A0answer.") {
             IconCircle(Curve.PHONE)
         }
-        Seg(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), s.callMode) { m ->
-            engine.store.update { it.copy(callMode = m) }
-        }
-        when (s.callMode) {
-            CallMode.CHOSEN -> Explainer(Curve.PEOPLE, "Only the people you choose ring your Fitbit Air.", roomy = false, circle = a.surface)
-            CallMode.CONTACTS -> Explainer(Curve.CONTACTS, "Anyone saved in your contacts rings your Fitbit Air. Numbers you haven't saved stay on your phone.", roomy = true, circle = a.surface)
-            CallMode.ANYONE -> Explainer(Curve.CALLING, "Every call rings your Fitbit Air, including numbers you haven't saved.", roomy = true, circle = a.surface)
-        }
+        // The choice and what it will do share one panel; Chosen's people and Add people continue it (Davor, 15 Nov).
+        val rows = mutableListOf<@Composable () -> Unit>({
+            Box(Modifier.padding(16.dp)) { CallChoice(s.callMode, s.people) { m -> engine.store.update { it.copy(callMode = m) } } }
+        })
         if (s.callMode == CallMode.CHOSEN) {
-            val rows = mutableListOf<@Composable () -> Unit>()
-            if (s.people.isEmpty()) rows += { GroupRow(vertical = 12.dp) { Text("Nobody yet", style = Type.body, color = a.muted) } }
             s.people.forEach { p ->
                 rows += { GroupRow(vertical = 10.dp) {
                     Avatar(p.name)
@@ -459,8 +453,8 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
                 } }
             }
             rows += { Box(Modifier.padding(horizontal = 20.dp)) { TextAction("Add people", pick) } }
-            Group(rows)
         }
+        Group(rows)
     }
 }
 

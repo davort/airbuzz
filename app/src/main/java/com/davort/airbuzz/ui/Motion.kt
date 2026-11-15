@@ -1,5 +1,11 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.Composable
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -47,4 +53,39 @@ fun pageChange(forward: Boolean): ContentTransform {
         slideOutHorizontally(slide) { (it * if (forward) behind else front).roundToInt() } + fadeOut(tween(if (forward) 180 else 120, easing = Motion.Out)),
         sizeTransform = null,
     )
+}
+
+/**
+ * Home to Activity and back (Davor, 15 Nov): the day's graph itself moves to its place on the other page (see
+ * [todayLine]), so the pages around it only fade, drifting 24 dp. The page you leave goes quickly; the one you go to
+ * comes in once the graph is on its way.
+ */
+fun graphPageChange(forward: Boolean): ContentTransform {
+    val drift = 24
+    return if (forward) ContentTransform(
+        fadeIn(tween(240, 100, Motion.Out)) + slideInHorizontally(tween(240, 100, Motion.Out)) { drift },
+        fadeOut(tween(120, easing = Motion.In)) + slideOutHorizontally(tween(120, easing = Motion.In)) { -drift },
+        sizeTransform = null,
+    ) else ContentTransform(
+        fadeIn(tween(220, 60, Motion.Out)) + slideInHorizontally(tween(220, 60, Motion.Out)) { -drift },
+        fadeOut(tween(140, easing = Motion.In)) + slideOutHorizontally(tween(140, easing = Motion.In)) { drift },
+        sizeTransform = null,
+    )
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+class PageShare(val shared: SharedTransitionScope, val page: AnimatedVisibilityScope, val forward: Boolean)
+
+/** Set around Home and Activity, so their day graphs can find each other. */
+val LocalPageShare = staticCompositionLocalOf<PageShare?> { null }
+
+/** The day's graph on Home and on Activity's today: it moves between them, 320 ms going in and 260 ms coming back. */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.todayLine(): Modifier {
+    val s = LocalPageShare.current ?: return this
+    return with(s.shared) {
+        this@todayLine.sharedElement(rememberSharedContentState("today line"), s.page,
+            boundsTransform = { _, _ -> tween(if (s.forward) 320 else 260, easing = Motion.Out) })
+    }
 }
