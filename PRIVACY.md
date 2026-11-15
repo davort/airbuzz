@@ -13,7 +13,7 @@ Everything AirBuzz keeps stays on your phone, in storage only AirBuzz can read. 
 - **The people you choose.** You pick people with Android's contact picker. AirBuzz keeps only their names and phone numbers. It cannot read the rest of your contacts.
 - **Callers you hide from "Called recently"**: their number, or their name when there is none, so they stay hidden.
 - **Your settings**, such as the apps you choose, quiet times, the vibration strength and the look of the app.
-- **A step log** that helps find out why an alert didn't buzz. It records which apps posted notifications and when, what AirBuzz did, timings, whether Bluetooth is on, and the battery levels of your phone and Fitbit Air. It never contains message text, caller names or numbers. It keeps one week of steps, and never more than the last 1,000.
+- **A step log** that helps find out why an alert didn't buzz. It records which apps posted notifications and when, what AirBuzz did, timings, whether Bluetooth is on, the strength of the Bluetooth signal to your Fitbit Air, and your phone's battery level. AirBuzz can't read the Fitbit Air's battery. It never contains message text, caller names or numbers. It keeps one week of steps, and never more than the last 1,000.
 
 ## What leaves your phone
 
