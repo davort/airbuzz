@@ -32,7 +32,7 @@ AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It uses
 
 ## Feature graphic
 
-Paper file "AirBuzz", page "Store", artboard "Feature graphic · B · The sentence" (1024 × 500): "When Mum calls, ring my Fitbit Air.", with "Mum" as the green word.
+`feature-graphic.png` (1024 × 500, no transparency), exported from Paper file "AirBuzz", page "Store", artboard "Feature graphic · C2 · Gym photo, woven strap". "When Mum calls, ring my Fitbit Air.", with "Mum" as the green word, over the website's gym photo edited with Higgsfield: a plain woven strap, a mild smile because Mum is calling, and no plant. The lime buzz rings are a separate layer in Paper, so they can be moved without touching the photo.
 
 ## Phone screenshots
 
