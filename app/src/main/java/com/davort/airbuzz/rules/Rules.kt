@@ -32,6 +32,8 @@ data class Settings(
     val darkAccent: Int = 0,
     /** False until onboarding is finished (decision 39). */
     val onboarded: Boolean = false,
+    /** True once Home's › after "Today" has nudged, the one-time hint that the line opens Activity. */
+    val activityHinted: Boolean = false,
     /** Whether [ringAnywayPeople] ring through quiet times and a pause. Starts off, with nobody in the list. */
     val ringAnyway: Boolean = false,
     val ringAnywayPeople: List<Person> = emptyList(),

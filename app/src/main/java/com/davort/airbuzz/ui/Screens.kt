@@ -121,10 +121,6 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
             }
         }))
         Group(listOf<@Composable () -> Unit>(
-            { GroupRow({ go(Screen.ACTIVITY) }) {
-                TwoLine("Activity", Modifier.weight(1f)) { Label("This week's calls and messages") }
-                GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
-            } },
             { GroupRow({ go(Screen.SETUP) }) {
                 TwoLine("Setup checklist", Modifier.weight(1f)) { Label("Permissions and background") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)

@@ -44,6 +44,7 @@ class SettingsStore(context: Context) {
         put("lightAccent", s.lightAccent)
         put("darkAccent", s.darkAccent)
         put("onboarded", s.onboarded)
+        put("activityHinted", s.activityHinted)
         put("ringAnyway", s.ringAnyway)
         put("ringAnywayPeople", encodePeople(s.ringAnywayPeople))
         put("hiddenCallers", JSONArray(s.hiddenCallers.toList()))
@@ -81,6 +82,7 @@ class SettingsStore(context: Context) {
             darkAccent = o.optInt("darkAccent", d.darkAccent),
             // Settings saved before 0.4 belong to someone who already set AirBuzz up.
             onboarded = o.optBoolean("onboarded", true),
+            activityHinted = o.optBoolean("activityHinted", d.activityHinted),
             ringAnyway = o.optBoolean("ringAnyway", d.ringAnyway),
             ringAnywayPeople = decodePeople(o.optJSONArray("ringAnywayPeople")) ?: d.ringAnywayPeople,
             hiddenCallers = o.optJSONArray("hiddenCallers")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: d.hiddenCallers,

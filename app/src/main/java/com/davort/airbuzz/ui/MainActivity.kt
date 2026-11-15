@@ -22,6 +22,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -105,7 +113,7 @@ private val Screen.depth get() = when (this) {
     Screen.LICENCE -> 4
 }
 
-private val ENTERED_FROM_SEVERAL = setOf(Screen.ACTIVITY, Screen.TEST, Screen.SETUP)
+private val ENTERED_FROM_SEVERAL = setOf(Screen.TEST, Screen.SETUP)
 
 /** Where Back goes from each page, unless it remembers the page that opened it. */
 private val Screen.parent get() = when (this) {
@@ -159,8 +167,8 @@ fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
     var licence by rememberSaveable { mutableIntStateOf(0) }
-    // Activity, Test buzz and the setup checklist each have more than one way in, so Back returns to the page that
-    // opened them, such as Settings rather than Home (issue #10).
+    // Test buzz and the setup checklist each have more than one way in, so Back returns to the page that opened them,
+    // such as Settings rather than Home (issue #10). Activity opens only from Home.
     var from by rememberSaveable { mutableStateOf(mapOf<Screen, Screen>()) }
     val go: (Screen) -> Unit = { to ->
         if (to in ENTERED_FROM_SEVERAL && to != screen) from = from + (to to screen)
@@ -302,16 +310,39 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
             } else {
                 val start = dayStart(now = now)
                 val today = entries.filter { it.time >= start && it.kind != Kind.TEST }
-                Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) },
+                // Pressing the day tints a panel just outside it and shrinks it a little, without a ripple. The ›
+                // after "Today" nudges right twice on the first Home that shows it, once ever, to hint that the
+                // line opens Activity.
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
+                val panel by animateColorAsState(if (pressed) a.tint else a.tint.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
+                val nudge = remember { Animatable(0f) }
+                if (!s.activityHinted) LaunchedEffect(Unit) {
+                    delay(1_000)
+                    repeat(2) {
+                        nudge.animateTo(6f, tween(225, easing = Motion.Out))
+                        nudge.animateTo(0f, tween(225, easing = Motion.InOut))
+                    }
+                    engine.store.update { it.copy(activityHinted = true) }
+                }
+                Column(Modifier.fillMaxWidth()
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .drawBehind {
+                        val x = 10.dp.toPx(); val y = 6.dp.toPx()
+                        drawRoundRect(panel, Offset(-x, -y), Size(size.width + 2 * x, size.height + 2 * y), CornerRadius(12.dp.toPx()))
+                    }
+                    .clickable(interaction, indication = null, onClickLabel = "Open Activity") { go(Screen.ACTIVITY) },
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     BuzzStrip(entries, start, height = 44.dp, tall = 26.dp, short = 9.dp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Label("Today", Modifier.weight(1f))
+                        Label("Today")
+                        HGap(4)
+                        GlyphIcon(Glyph.CHEVRON, 12.dp, a.ink, 3f, Modifier.graphicsLayer { translationX = nudge.value.dp.toPx() })
+                        Spacer(Modifier.weight(1f))
                         Label("${today.count { it.fate == Fate.BUZZED }} buzzed", color = a.accent)
                         HGap(6)
                         Label("· ${today.count { it.fate == Fate.IGNORED }} ignored")
-                        HGap(6)
-                        GlyphIcon(Glyph.CHEVRON, 14.dp, a.muted, 2.4f)
                     }
                 }
             } }
