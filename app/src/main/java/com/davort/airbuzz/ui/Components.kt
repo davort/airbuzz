@@ -348,12 +348,12 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
             val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "strength")
             val shape = RoundedCornerShape(16.dp)
             val ring = lerp(a.muted, a.accent, shown)
-            // 0..1 over 700 ms; it rests at 1 (nothing playing) and plays only when this tile becomes the chosen one.
+            // 0..1 over 1.4 s (Davor, 15 Nov: twice as slow as 0.6.31); it rests at 1 (nothing playing) and plays only when this tile becomes the chosen one.
             val play = remember { Animatable(1f) }
             val first = remember { booleanArrayOf(true) }
             LaunchedEffect(on) {
                 if (first[0]) { first[0] = false; return@LaunchedEffect }
-                if (on) { play.snapTo(0f); play.animateTo(1f, tween(700, easing = LinearEasing)) }
+                if (on) { play.snapTo(0f); play.animateTo(1f, tween(1400, easing = LinearEasing)) }
             }
             Box(
                 Modifier.weight(1f).clip(shape).background(a.tint.copy(alpha = a.tint.alpha * shown))
@@ -367,7 +367,7 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
                         val u = size.width / 114f
                         fun capsule(inset: Float, color: Color, stroke: Float) = drawRoundRect(color, Offset(inset * u, inset * u),
                             Size((114 - 2 * inset) * u, (74 - 2 * inset) * u), CornerRadius((37 - inset) * u), style = Stroke(stroke * u))
-                        // Each part's progress: it starts [from] ms into the 700 and runs for [ms] on the Out curve.
+                        // Each part's progress on a 700-step timeline, played over 1.4 s: it starts at [from] and runs for [ms], on the Out curve.
                         fun part(from: Int, ms: Int) = Motion.Out.transform(((play.value * 700 - from) / ms).coerceIn(0f, 1f))
                         fun settled(p: Float, draw: () -> Unit) = scale(0.82f + 0.18f * p) { if (p > 0f) draw() }
                         val inner = part(0, 420)
