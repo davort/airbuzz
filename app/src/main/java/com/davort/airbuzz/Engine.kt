@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
@@ -183,6 +184,12 @@ class Engine(private val app: Context) {
     private var testJob: Job? = null
     /** Jobs that failed, usually because Google Health held the Air, waiting [RETRY_MS] (or [SILENT_RING_RETRY_MS]) to try again. */
     private val waiting = mutableListOf<Job>()
+    /**
+     * Keeps the phone's processor awake while an alert is still on its way to the Fitbit Air. [main]'s timers stop
+     * while the processor sleeps, so on 15 Nov a message's 5 s retry ran 46 s later, after its 30 s had passed.
+     */
+    private val awake = app.getSystemService(PowerManager::class.java)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AirBuzz:alert").apply { setReferenceCounted(false) }
     private val lastBuzzByApp = HashMap<String, Long>()
 
     val settings: Settings get() = store.settings.value
@@ -265,6 +272,7 @@ class Engine(private val app: Context) {
         if (running?.ringKey == key) band.stopRing()
         queue.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
         waiting.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
+        keepAwake()
     }
 
     /** Silence from the "Ringing your Fitbit Air" notification. */
@@ -273,6 +281,7 @@ class Engine(private val app: Context) {
         running?.takeIf { it.ringKey != null }?.let { band.stopRing() }
         queue.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
         waiting.removeAll { job -> (job.ringKey != null).also { if (it) job.done(cancelled()) } }
+        keepAwake()
     }
 
     // Messages
@@ -348,6 +357,17 @@ class Engine(private val app: Context) {
     // The band queue
 
     private fun pump() {
+        startNext()
+        keepAwake()
+    }
+
+    /** Holds [awake] while a job runs, is queued or waits to retry; each call extends it, up to [AWAKE_MAX_MS]. */
+    private fun keepAwake() {
+        if (running != null || queue.isNotEmpty() || waiting.isNotEmpty()) awake.acquire(AWAKE_MAX_MS)
+        else if (awake.isHeld) awake.release()
+    }
+
+    private fun startNext() {
         if (running != null || band.busy) return
         val job = queue.pollFirst() ?: return
         running = job
@@ -415,6 +435,7 @@ class Engine(private val app: Context) {
         queue.removeAll(dropped.toSet())
         waiting.removeAll(dropped.toSet())
         dropped.forEach { it.done(seen()) }
+        keepAwake()
     }
 
     // Problems while AirBuzz is closed (brief decision 41: "quiet, then loud"). One notification, updated in place:
@@ -537,5 +558,7 @@ class Engine(private val app: Context) {
         const val MESSAGE_RETRY_FOR_MS = 30_000L
         /** A call keeps trying for as long as AirBuzz would ring it, unless it ends first. */
         const val RING_RETRY_FOR_MS = 60_000L
+        /** The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. */
+        const val AWAKE_MAX_MS = 150_000L
     }
 }
