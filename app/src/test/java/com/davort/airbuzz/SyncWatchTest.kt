@@ -27,6 +27,7 @@ class SyncWatchTest {
         for (i in 0 until 120) if (w.record(i * 50L, 200)) started = i
         assertEquals(14, started) // 15 packets = 3 kB
         assertTrue(w.syncing)
+        assertEquals(0L, w.startedAt) // the burst's first packet, not the one that tipped it over
 
         val lastPacket = 119 * 50L
         // Still within 10 s of the burst's last kilobytes: still syncing.

@@ -479,6 +479,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (rxSource != null) { sessionRx++; heardBand = true } else {
             traffic.record(now, packet.size)?.let(log)
             if (syncWatch.record(now, packet.size)) {
+                // Logged with when its traffic began, so a silent spell's end can be lined up with it (15 Nov).
+                log(String.format(Locale.ROOT, "Google Health sync started, its traffic %.1f s before", (now - syncWatch.startedAt) / 1000.0))
                 onHealthSync(true)
                 main.removeCallbacks(syncCheck)
                 main.postDelayed(syncCheck, SYNC_CHECK_MS)
@@ -895,7 +897,9 @@ class QuietWait(private val startedAt: Long) {
  */
 class SyncWatch {
     private val recent = ArrayDeque<Pair<Long, Int>>()
-    private var startedAt = 0L
+    /** When the running or last sync's traffic began: the first packet in the window that started it. */
+    var startedAt = 0L
+        private set
     private var bytes = 0L
 
     var syncing = false
