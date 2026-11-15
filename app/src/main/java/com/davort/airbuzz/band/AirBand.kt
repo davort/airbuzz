@@ -655,7 +655,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // On a new connection the fast-link request waits until our own session exists, so it cannot help
         // Google Health win the handshake race (fitbit-air's finding).
         if (!linkBoosted) linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
-        if (stopRequested) return succeed("Stopped before the first tap.")
+        if (stopRequested) return succeed("Stopped before the first buzz.")
         val cached = prefs.getInt(STRENGTH_KEY, 0).takeIf { it == AirHaptics.LOW || it == AirHaptics.HIGH }
         val current: Single<Int> = if (cached != null) Single.just(cached) else readStrength(ep)
         disposables.add(current.subscribe(
@@ -691,7 +691,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 }
                 main.postDelayed({ nextTap(ep, index + 1) }, if (cmd is BandCommand.Taps && index + 1 >= cmd.count) 0 else gap)
             }
-        }, { e -> main.post { fail("The tap failed: ${e.message}") } }))
+        }, { e -> main.post { fail("The buzz failed: ${e.message}") } }))
     }
 
     /** Reads the strength back so a mistake can't leave the band (and its alarm) at the wrong strength. */
