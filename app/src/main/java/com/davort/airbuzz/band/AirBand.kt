@@ -219,6 +219,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Called on the main thread when Google Health starts (true) or stops (false) syncing, as [SyncWatch] judges it. */
     var onHealthSync: (Boolean) -> Unit = {}
 
+    /** Called on the main thread when the open link comes up (true), or is lost or still being asked for (false). */
+    var onLink: (Boolean) -> Unit = {}
+
     private val syncWatch = SyncWatch()
     private val syncCheck = object : Runnable {
         override fun run() {
@@ -336,6 +339,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled != true) return
         val device = findBondedAir() ?: return
         log("Opening the link to ${device.name}")
+        onLink(false)
         val g = try { device.connectGatt(context, true, callback, TRANSPORT_LE) } catch (_: SecurityException) { null }
         if (g == null) return scheduleWarm()
         warming = true
@@ -353,6 +357,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private fun linkFailed(message: String) {
         if (busy) return fail(message)
         log("Open link: $message")
+        onLink(false)
         closeTransport()
         scheduleWarm()
     }
@@ -434,6 +439,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     warming = false
                     linkReadyAt = SystemClock.elapsedRealtime()
                     log("The link is open")
+                    onLink(true)
                     logBattery(linkReadyAt)
                 } else if (resubscribedAt != 0L) {
                     log("Open link: subscribed again")

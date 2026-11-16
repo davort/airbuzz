@@ -152,6 +152,7 @@ class Engine(private val app: Context) {
     private val band = AirBand(app) { line -> note(line); testLine(line) }.also {
         it.onPhase = { testPhases() }
         it.onHealthSync = { syncing -> bandState.value = bandState.value.copy(healthSyncing = syncing) }
+        it.onLink = { up -> if (up) linkBack() else linkLost() }
     }
 
     private val bandState = MutableStateFlow(BandState())
@@ -214,6 +215,8 @@ class Engine(private val app: Context) {
                         val st = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
                         if (st == BluetoothAdapter.STATE_ON || st == BluetoothAdapter.STATE_OFF) {
                             note("Bluetooth turned ${if (st == BluetoothAdapter.STATE_ON) "on" else "off"}")
+                            // Out of reach gives way to Bluetooth being off, which checkBluetooth shows instead.
+                            if (st == BluetoothAdapter.STATE_OFF) linkBack()
                             checkBluetooth()
                             if (st == BluetoothAdapter.STATE_ON) band.warmUp() else band.shutdown()
                         }
@@ -233,7 +236,7 @@ class Engine(private val app: Context) {
 
     fun setEnabled(on: Boolean) {
         store.update { it.copy(enabled = on) }
-        if (!on) band.shutdown()
+        if (!on) { band.shutdown(); linkBack() }
     }
 
     // Calls
@@ -419,7 +422,7 @@ class Engine(private val app: Context) {
             } else {
                 if (failed) note("Gave up: ${r.message}")
                 if (failed && job.missTitle != null) missed(job.missTitle, r)
-                if (r.taps > 0) clearProblem()
+                if (r.taps > 0) { clearProblem(); linkBack() }
                 job.done(r)
             }
             main.post { pump() }
@@ -434,7 +437,47 @@ class Engine(private val app: Context) {
     fun onMessageDismissed(key: String) = dropSeen("Message dismissed") { it.alertKey == key }
 
     /** The phone was unlocked, so every message still waiting to buzz has been seen. */
-    private fun onUnlocked() = dropSeen("Phone unlocked") { it.alertKey != null }
+    private fun onUnlocked() {
+        dropSeen("Phone unlocked") { it.alertKey != null }
+        // The timer below stops while the phone sleeps, so unlocking checks again.
+        checkLinkDown()
+    }
+
+    // The open link being gone a while means the Air is out of reach (16 Nov: left at home, nothing showed for 26 min
+    // until a message missed). Home then shows it, without a notification, which waits for a missed alert; the link
+    // coming back clears both (Davor, 16 Nov). Drops that reopen within minutes are common, hence the wait.
+
+    /** Elapsed realtime when the open link was lost or first asked for; 0 while it is open. */
+    private var linkDownAt = 0L
+    /** [BandState.lastError] was set by [checkLinkDown], not by a failed alert. */
+    private var linkWarned = false
+    private val linkDownCheck = Runnable { checkLinkDown() }
+
+    private fun linkLost() {
+        if (linkDownAt != 0L) return
+        linkDownAt = SystemClock.elapsedRealtime()
+        main.removeCallbacks(linkDownCheck)
+        main.postDelayed(linkDownCheck, LINK_DOWN_WARN_MS)
+    }
+
+    private fun checkLinkDown() {
+        val down = SystemClock.elapsedRealtime() - linkDownAt
+        if (linkDownAt == 0L || down < LINK_DOWN_WARN_MS || bandState.value.lastError != null) return
+        if (!settings.enabled || !bluetoothOn() || band.findBondedAir() == null) return
+        note("Open link: down for ${down / 60_000} min; Home shows the Fitbit Air out of reach")
+        linkWarned = true
+        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air is out of reach.")
+    }
+
+    /** The link is back, a command reached the Air, or the link isn't wanted (AirBuzz off, Bluetooth off). */
+    private fun linkBack() {
+        main.removeCallbacks(linkDownCheck)
+        linkDownAt = 0L
+        val outOfReach = problem?.cause == Cause.OUT_OF_REACH
+        if (linkWarned || outOfReach) bandState.value = bandState.value.copy(lastError = null)
+        linkWarned = false
+        if (outOfReach) clearProblem()
+    }
 
     private fun dropSeen(why: String, match: (Job) -> Boolean) {
         val dropped = (queue.filter(match) + waiting.filter(match)).onEach { it.seen = true }
@@ -569,5 +612,7 @@ class Engine(private val app: Context) {
         const val RING_RETRY_FOR_MS = 60_000L
         /** The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. */
         const val AWAKE_MAX_MS = 150_000L
+        /** How long the open link must be gone before Home says the Air is out of reach. */
+        const val LINK_DOWN_WARN_MS = 10 * 60_000L
     }
 }
