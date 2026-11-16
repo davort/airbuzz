@@ -643,7 +643,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
         } else {
             val rows = day.filter { filter == 0 || it.fate == Fate.BUZZED }.reversed()
             if (rows.isEmpty()) Text("Nothing ${if (filter == 1) "buzzed" else "happened"} $word.", style = Type.small, color = a.muted)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { rows.forEach { HistoryRow(it) } }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { rows.forEach { HistoryRow(it) } }
         }
     }
 }

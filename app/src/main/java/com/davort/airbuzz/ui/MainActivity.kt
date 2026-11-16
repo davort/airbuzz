@@ -395,7 +395,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
 
             Spacer(Modifier.weight(1f))
             val recent = entries.filter { it.kind != Kind.TEST }.takeLast(3).reversed()
-            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().clickable(onClickLabel = "Open Activity") { go(Screen.ACTIVITY) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (recent.isEmpty()) Text("Nothing yet. Calls and messages appear here with what AirBuzz did.", style = Type.small, color = a.muted)
                 // Rows there when Home opens stand still; a new one opens its height and fades in at the top.
                 val seen = remember { recent.map { it.time }.toSet() }
@@ -592,29 +592,39 @@ fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String
     }
 }
 
+/** One alert in two lines: the app and who on the first, what happened on the second, so a reason is never cut. */
 @Composable
 fun HistoryRow(e: Entry) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Label(timeOf(e.time), Modifier.widthIn(min = 44.dp))
+    val (title, detail) = describe(e)
+    Row(Modifier.fillMaxWidth()) {
+        // The time and the bar line up with the first line.
+        Box(Modifier.height(24.dp).widthIn(min = 44.dp), contentAlignment = Alignment.CenterStart) { Label(timeOf(e.time)) }
         HGap(10)
-        BarMark(e.fate)
+        Box(Modifier.height(24.dp), contentAlignment = Alignment.Center) { BarMark(e.fate) }
         HGap(10)
-        Text(describe(e), style = Type.body, color = if (e.fate == Fate.IGNORED) a.muted else a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = Type.bodyMedium, color = if (e.fate == Fate.IGNORED) a.muted else a.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = Type.small, color = if (e.fate == Fate.FAILED) a.warn else a.muted)
+        }
     }
 }
 
-fun describe(e: Entry): String {
-    val who = e.who ?: e.appLabel
-    return when {
-        e.kind == Kind.TEST -> if (e.result == com.davort.airbuzz.data.Result.BUZZED) "Test buzz · ${seconds(e.latencyMs)}" else "Test buzz · failed"
-        e.kind == Kind.CALL && e.fate == Fate.BUZZED -> "$who called · " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
-        e.kind == Kind.CALL && e.fate == Fate.FAILED -> "$who called · couldn't reach your Fitbit Air"
-        e.kind == Kind.CALL -> "$who called · ${reasonLabel(e).lowercase()}"
-        e.fate == Fate.BUZZED -> if (e.count > 1) "$who · ${e.count} messages, 1 buzz" else "$who · ${e.appLabel}"
-        e.fate == Fate.FAILED -> "$who · couldn't reach your Fitbit Air"
-        else -> "${e.appLabel} · ${reasonLabel(e).lowercase()}"
+/** What an alert was and what AirBuzz did with it, as (app and who, what happened). */
+fun describe(e: Entry): Pair<String, String> {
+    if (e.kind == Kind.TEST) return "Test buzz" to if (e.result == com.davort.airbuzz.data.Result.BUZZED) "Buzzed in ${seconds(e.latencyMs)}" else "Failed"
+    val title = if (e.who != null && e.who != e.appLabel) "${e.appLabel} · ${e.who}" else e.appLabel
+    val call = e.kind == Kind.CALL
+    val detail = when (e.fate) {
+        Fate.BUZZED -> when {
+            call -> "Call, " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
+            e.count > 1 -> "${e.count} messages, 1 buzz"
+            else -> "Buzzed"
+        }
+        Fate.FAILED -> if (call) "Call, couldn't reach your Fitbit Air" else "Couldn't reach your Fitbit Air"
+        Fate.IGNORED -> if (call) "Call, ${reasonLabel(e).lowercase()}" else reasonLabel(e)
     }
+    return title to detail
 }
 
 /** Why an alert was ignored, in the words the screens use. */
