@@ -222,6 +222,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Called on the main thread when the open link comes up (true), or is lost or still being asked for (false). */
     var onLink: (Boolean) -> Unit = {}
 
+    /** Called on the main thread when the Air sends again after answering nothing. */
+    var onHeardAgain: () -> Unit = {}
+
     private val syncWatch = SyncWatch()
     private val syncCheck = object : Runnable {
         override fun run() {
@@ -495,6 +498,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (silentSince != 0L) {
             log("The Fitbit Air is sending again, ${(now - silentSince) / 1000} s after it stopped answering")
             silentSince = 0L
+            onHeardAgain()
         }
         // Google Health's packets wake the phone now and then even in deep sleep, which keeps the battery line hourly.
         logBattery(now)

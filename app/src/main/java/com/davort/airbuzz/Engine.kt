@@ -153,6 +153,7 @@ class Engine(private val app: Context) {
         it.onPhase = { testPhases() }
         it.onHealthSync = { syncing -> bandState.value = bandState.value.copy(healthSyncing = syncing) }
         it.onLink = { up -> if (up) linkBack() else linkLost() }
+        it.onHeardAgain = { onHeardAgain() }
     }
 
     private val bandState = MutableStateFlow(BandState())
@@ -182,7 +183,12 @@ class Engine(private val app: Context) {
         var tries = 0
         /** The message was seen on the phone (unlocked or notification dismissed), so a late buzz isn't wanted. */
         var seen = false
+        /** A try found the Air answering nothing, so this message may wait [SILENT_MESSAGE_RETRY_FOR_MS]. */
+        var sawSilent = false
     }
+
+    /** Whether notification [key] is still on the phone; set by the notification listener once it is connected. */
+    var isShowing: (String) -> Boolean = { true }
 
     private val queue = ArrayDeque<Job>()
     private var running: Job? = null
@@ -222,12 +228,16 @@ class Engine(private val app: Context) {
                         }
                     }
                     Intent.ACTION_USER_PRESENT -> onUnlocked()
+                    Intent.ACTION_SCREEN_OFF -> screenOffAt = SystemClock.elapsedRealtime()
+                    Intent.ACTION_SCREEN_ON -> screenOffAt = 0L
                 }
             }
         }
         val filter = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
         }
         ContextCompat.registerReceiver(app, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         // Pause and Turn off are set from the screens, so follow the settings rather than each place that changes them.
@@ -317,7 +327,7 @@ class Engine(private val app: Context) {
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     log.updateLast({ it.time == entry.time && it.pkg == pkg }) {
                         if (r.taps > 0) it.copy(latencyMs = latency)
-                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "seen on the phone before the Fitbit Air was reached")
+                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = r.message.removeSuffix(".").replaceFirstChar(Char::lowercase))
                         else it.copy(result = Result.FAILED, reason = r.message)
                     }
                 })
@@ -396,12 +406,21 @@ class Engine(private val app: Context) {
             // thread on 11 Nov: a late buzz beats a missed one, but not for something already read).
             // A call the Air didn't answer at all is tried again almost at once: nothing was taken from Google Health,
             // and on 12 Nov the 5 s wait put a ringing call's first buzz at 14.3 s.
-            val wait = if (r.bandSilent && job.ringKey != null) SILENT_RING_RETRY_MS else RETRY_MS
+            // A message the Air answered nothing for keeps trying for up to 3 min, every 15 s after its first 30 s:
+            // on 16 Nov silent spells ended 61–141 s after four messages that were missed (Davor, 16 Nov). Late
+            // tries are dropped once the notification is gone from the phone, as when it was read elsewhere.
+            val now = SystemClock.elapsedRealtime()
+            if (r.bandSilent && job.alertKey != null) job.sawSilent = true
+            val wait = when {
+                r.bandSilent && job.ringKey != null -> SILENT_RING_RETRY_MS
+                r.bandSilent && job.alertKey != null && now + RETRY_MS >= job.giveUpAt -> SILENT_LATE_RETRY_MS
+                else -> RETRY_MS
+            }
+            val until = if (job.sawSilent) job.alertAt + SILENT_MESSAGE_RETRY_FOR_MS else job.giveUpAt
             // Test buzz gets the one retry a message would get when the Air answered nothing, as right after Bluetooth
             // came back on (15 Nov), so it doesn't fail where a message would buzz (Davor, 15 Nov). Its time still
             // counts from the press.
-            val retry = failed && !job.seen && if (job === testJob) r.bandSilent && job.tries < 2
-                else SystemClock.elapsedRealtime() + wait < job.giveUpAt
+            val retry = failed && !job.seen && if (job === testJob) r.bandSilent && job.tries < 2 else now + wait < until
             bandState.value = bandState.value.copy(
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
@@ -410,12 +429,7 @@ class Engine(private val app: Context) {
             if (retry) {
                 note("${r.message} Trying again in ${seconds(wait)}")
                 waiting += job
-                main.postDelayed({
-                    if (waiting.remove(job)) {
-                        if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
-                        pump()
-                    }
-                }, wait)
+                main.postDelayed({ retryNow(job) }, wait)
             } else if (failed && job.seen) {
                 note("Not retrying: the message was seen on the phone")
                 job.done(seen())
@@ -424,14 +438,43 @@ class Engine(private val app: Context) {
                 if (failed && job.missTitle != null) missed(job.missTitle, r)
                 if (r.taps > 0) { clearProblem(); linkBack() }
                 job.done(r)
+                if (r.taps > 0 && job.alertKey != null) coverWaiting(r)
             }
             main.post { pump() }
         }
     }
 
+    /** Puts [job] back in the queue if it is still waiting, unless it is a late message no longer on the phone. */
+    private fun retryNow(job: Job) {
+        if (!waiting.remove(job)) return
+        val key = job.alertKey
+        if (key != null && SystemClock.elapsedRealtime() >= job.giveUpAt && !isShowing(key)) {
+            note("Not retrying: the ${job.what} is no longer on the phone, maybe read elsewhere")
+            job.done(seen("Gone from the phone before the Fitbit Air was reached."))
+        } else if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
+        pump()
+    }
+
+    /** The Air answers again after a silent spell, so messages waiting out that spell try now rather than at their timer. */
+    private fun onHeardAgain() {
+        waiting.filter { it.alertKey != null }.forEach(::retryNow)
+    }
+
+    /** A message reached the Air, so other messages that already tried and are waiting count as buzzed with it. */
+    private fun coverWaiting(r: BandResult) {
+        val covered = (waiting + queue).filter { it.alertKey != null && it.tries > 0 }
+        if (covered.isEmpty()) return
+        note("That buzz also covers ${covered.size} waiting message${if (covered.size == 1) "" else "s"}")
+        waiting.removeAll(covered.toSet())
+        queue.removeAll(covered.toSet())
+        covered.forEach { it.done(r) }
+        keepAwake()
+    }
+
     private fun cancelled() = BandResult(true, "Stopped before the Fitbit Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
 
-    private fun seen() = BandResult(true, "Seen on the phone before the Fitbit Air was reached.", null, 0, 0, 0, 0, 0, "new", emptyMap())
+    private fun seen(why: String = "Seen on the phone before the Fitbit Air was reached.") =
+        BandResult(true, why, null, 0, 0, 0, 0, 0, "new", emptyMap())
 
     /** The user dismissed message notification [key], so its buzz isn't wanted any more if it is still waiting. */
     fun onMessageDismissed(key: String) = dropSeen("Message dismissed") { it.alertKey == key }
@@ -473,6 +516,7 @@ class Engine(private val app: Context) {
     private fun linkBack() {
         main.removeCallbacks(linkDownCheck)
         linkDownAt = 0L
+        if (linkWarned) note("Home no longer shows the Fitbit Air out of reach")
         val outOfReach = problem?.cause == Cause.OUT_OF_REACH
         if (linkWarned || outOfReach) bandState.value = bandState.value.copy(lastError = null)
         linkWarned = false
@@ -591,7 +635,22 @@ class Engine(private val app: Context) {
     }
 
     /** How long Android took to hand the notification to AirBuzz, which a buzz's timing doesn't include. */
-    private fun posted(moment: Moment, postedAt: Long) = ", posted ${seconds(moment.nowMs - postedAt)} before"
+    private fun posted(moment: Moment, postedAt: Long) = ", posted ${seconds(moment.nowMs - postedAt)} before; ${phoneState()}"
+
+    /** Elapsed realtime when the screen last went off; 0 while it is on or since AirBuzz started. */
+    private var screenOffAt = 0L
+
+    /** Whether the phone was asleep when an alert came, so the step log tells a deep-sleep buzz from others (16 Nov). */
+    private fun phoneState(): String {
+        val pm = app.getSystemService(PowerManager::class.java)
+        if (pm.isInteractive) return "screen on"
+        val off = if (screenOffAt == 0L) "screen off" else "screen off ${(SystemClock.elapsedRealtime() - screenOffAt) / 60_000} min"
+        return off + when {
+            pm.isDeviceIdleMode -> ", deep sleep"
+            Build.VERSION.SDK_INT >= 33 && pm.isDeviceLightIdleMode -> ", light sleep"
+            else -> ""
+        }
+    }
 
     private fun seconds(ms: Long) = String.format(Locale.ROOT, "%.1f s", ms / 1000.0)
 
@@ -608,9 +667,16 @@ class Engine(private val app: Context) {
         const val SILENT_RING_RETRY_MS = 1_000L
         /** A message buzz is worth up to half a minute late; after that it is logged as failed. */
         const val MESSAGE_RETRY_FOR_MS = 30_000L
+        /** While the Air answers nothing, a message keeps trying this long from its arrival... */
+        const val SILENT_MESSAGE_RETRY_FOR_MS = 180_000L
+        /** ...every this often once its first [MESSAGE_RETRY_FOR_MS] have passed. */
+        const val SILENT_LATE_RETRY_MS = 15_000L
         /** A call keeps trying for as long as AirBuzz would ring it, unless it ends first. */
         const val RING_RETRY_FOR_MS = 60_000L
-        /** The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. */
+        /**
+         * The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. Each try
+         * renews it, so a message waiting out a silent spell for [SILENT_MESSAGE_RETRY_FOR_MS] stays awake throughout.
+         */
         const val AWAKE_MAX_MS = 150_000L
         /** How long the open link must be gone before Home says the Air is out of reach. */
         const val LINK_DOWN_WARN_MS = 10 * 60_000L

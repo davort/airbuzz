@@ -47,7 +47,11 @@ class AlertListener : NotificationListenerService() {
         engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), chatName(n), moment(), sbn.postTime)
     }
 
-    override fun onListenerConnected() { engine.note("Notification listener connected") }
+    override fun onListenerConnected() {
+        engine.note("Notification listener connected")
+        // Android answers null while the listener isn't bound; then a late buzz goes ahead as before.
+        engine.isShowing = { key -> getActiveNotifications(arrayOf(key))?.isNotEmpty() ?: true }
+    }
 
     /**
      * Android unbinds a listener when the user turns its access off, and some phone makers' battery savers do it on
