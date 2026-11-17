@@ -34,7 +34,13 @@ demo battery -e level 100 -e plugged false
 demo network -e fully true
 demo network -e wifi show -e level 4 -e fully true
 demo network -e mobile hide
+# No SIM, or the emulated mobile signal shows as a second Wi-Fi icon.
+demo network -e sims 0
 demo notifications -e visible false
+# Safety Center's "No screen lock" notification puts a shield next to the clock even in demo mode; snooze it for a day.
+for key in $("${adb[@]}" shell dumpsys notification --noredact | grep -oE 'key=0\|android\|[0-9]+\|[^ :|]*\|1000' | sed 's/^key=//' | sort -u); do
+  "${adb[@]}" shell "cmd notification snooze --for 86400000 '$key'" >/dev/null
+done
 
 messages=com.google.android.apps.messaging
 gmail=com.google.android.gm
