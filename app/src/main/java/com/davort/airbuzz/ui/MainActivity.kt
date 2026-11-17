@@ -622,7 +622,8 @@ fun describe(e: Entry): Pair<String, String> {
             else -> "Buzzed"
         }
         Fate.FAILED -> if (call) "Call, couldn't reach your Fitbit Air" else "Couldn't reach your Fitbit Air"
-        Fate.IGNORED -> if (call) "Call, ${reasonLabel(e).lowercase()}" else reasonLabel(e)
+        // An app or caller that wasn't picked reads "Ignored", the word the Today line and Activity count it under.
+        Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "Call, ${it.lowercase()}" else it }
     }
     return title to detail
 }
