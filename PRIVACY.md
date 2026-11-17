@@ -21,7 +21,7 @@ Nothing, unless you send it yourself. AirBuzz has no permission to use the inter
 
 The step log leaves your phone only when you press **Share log** and choose where to send it, such as an email. The shared log also includes your phone's maker and model, its Android version and the AirBuzz version.
 
-AirBuzz talks to your Fitbit Air only over Bluetooth. It sends your Air only the command to vibrate, never what an alert says. To tell when Google Health is syncing, it counts how much the Fitbit Air sends Google Health. That traffic is encrypted, and AirBuzz can't read it.
+AirBuzz talks to your Fitbit Air only over Bluetooth. It sends your Fitbit Air only the command to vibrate, never what an alert says. To tell when Google Health is syncing, it counts how much the Fitbit Air sends Google Health. That traffic is encrypted, and AirBuzz can't read it.
 
 ## Deleting your data
 
@@ -29,4 +29,4 @@ Uninstalling AirBuzz, or clearing its storage in Android's settings, deletes eve
 
 ## Changes
 
-If this policy changes, the new version will be posted in this file, with a new effective date. Earlier versions stay in the file's history on GitHub.
+If this policy changes, the new version will be posted here, with a new effective date.

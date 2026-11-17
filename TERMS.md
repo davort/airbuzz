@@ -18,9 +18,9 @@ Don't rely on AirBuzz for anything where a missed or late alert could cause harm
 
 ## Works with Google Fitbit Air, unofficially
 
-AirBuzz talks to Google Fitbit Air over an unofficial protocol. An update to the Air's firmware or to Google Health could stop AirBuzz working, for a while or for good.
+AirBuzz talks to Google Fitbit Air over an unofficial protocol. An update to the Fitbit Air's firmware or to Google Health could stop AirBuzz working, for a while or for good.
 
-AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. Google, Fitbit and Fitbit Air are trademarks of Google LLC.
+AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. Google, Fitbit and Google Fitbit Air are trademarks of Google LLC.
 
 ## Law
 
@@ -28,4 +28,4 @@ Swedish law applies to these terms. If you use AirBuzz as a consumer and live in
 
 ## Changes
 
-If these terms change, the new version will be posted in this file, with a new effective date. Earlier versions stay in the file's history on GitHub.
+If these terms change, the new version will be posted here, with a new effective date.

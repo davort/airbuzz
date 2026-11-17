@@ -635,6 +635,7 @@ fun reasonLabel(e: Entry): String = when (e.reason) {
     "phone in use" -> "Phone in use"
     "paused" -> "Paused"
     "AirBuzz is off" -> "AirBuzz off"
+    "gone from the phone before the Fitbit Air was reached" -> "Already gone from your phone"
     else -> e.reason.replaceFirstChar { it.uppercase() }
 }
 

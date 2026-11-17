@@ -221,11 +221,11 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
                 TwoLine("Source code", Modifier.weight(1f)) { Label("github.com/davort/airbuzz") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
-            { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz/blob/main/PRIVACY.md") }) {
+            { GroupRow({ openWeb(context, "https://airbuzz.me/privacy") }) {
                 TwoLine("Privacy policy", Modifier.weight(1f)) { Label("Kept on your phone") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
-            { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz/blob/main/TERMS.md") }) {
+            { GroupRow({ openWeb(context, "https://airbuzz.me/terms") }) {
                 TwoLine("Terms of use", Modifier.weight(1f)) { Label("Free and provided as is") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
