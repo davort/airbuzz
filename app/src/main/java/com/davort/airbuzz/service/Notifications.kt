@@ -24,13 +24,15 @@ class ActionReceiver : BroadcastReceiver() {
 
 /**
  * AirBuzz has no permanent notification: Android keeps a notification listener running on its own.
- * It shows "Ringing your Fitbit Air" with Silence while a call rings the band, and one problem notification while something
- * stops alerts reaching the Air (brief decision 41): silent while Bluetooth is off, loud once an alert was missed.
+ * It shows "Ringing your Fitbit Air" with Silence while a call rings the band, a silent notification while Bluetooth is
+ * off (brief decision 41), and a loud one once an alert was missed. The missed one stays until it is tapped or swiped,
+ * even after the Air buzzes again (Davor, 17 Nov), so it has its own ID.
  */
 object Notifications {
     private const val RINGING_ID = 2
     private const val RINGING_CHANNEL = "ringing"
     private const val PROBLEM_ID = 4
+    private const val MISSED_ID = 5
     private const val PROBLEMS_CHANNEL = "problems"
     private const val MISSED_CHANNEL = "missed"
 
@@ -49,41 +51,63 @@ object Notifications {
         })
     }
 
-    /**
-     * The one problem notification, updated in place: [loud] moves it from the silent Problems channel to Missed
-     * alerts. [fixLabel] adds the one action, opening [fix]; tapping the notification opens AirBuzz.
-     */
-    fun showProblem(context: Context, loud: Boolean, title: String, text: String, fixLabel: String?, fix: Intent) {
-        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        // Caller and chat names stay off the lock screen.
-        val public = NotificationCompat.Builder(context, if (loud) MISSED_CHANNEL else PROBLEMS_CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_buzz)
-            .setContentTitle(if (loud) "An alert didn't reach your Fitbit Air" else title)
+    /** The silent notification while Bluetooth is off; tapping it opens AirBuzz, Turn on opens Bluetooth settings. */
+    fun showBluetoothOff(context: Context) {
+        val n = builder(context, PROBLEMS_CHANNEL, "Bluetooth is off", "Your Fitbit Air won't buzz until it's back on",
+            "Turn on", Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        val n = NotificationCompat.Builder(context, if (loud) MISSED_CHANNEL else PROBLEMS_CHANNEL)
+        notify(context, PROBLEM_ID, n)
+    }
+
+    fun cancelBluetoothOff(context: Context) {
+        context.getSystemService(NotificationManager::class.java).cancel(PROBLEM_ID)
+    }
+
+    /**
+     * The loud notification for missed alerts, updated in place and replacing the Bluetooth-off one. [fixLabel] adds
+     * the one action, opening [fix]; tapping the notification opens AirBuzz and removes it.
+     */
+    fun showMissed(context: Context, title: String, text: String, fixLabel: String?, fix: Intent) {
+        // Caller and chat names stay off the lock screen.
+        val public = NotificationCompat.Builder(context, MISSED_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_buzz)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setCategory(if (loud) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
-            .setPriority(if (loud) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
+            .setContentTitle("An alert didn't reach your Fitbit Air")
+            .build()
+        val n = builder(context, MISSED_CHANNEL, title, text, fixLabel, fix)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setOnlyAlertOnce(false)
-            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        cancelBluetoothOff(context)
+        notify(context, MISSED_ID, n)
+    }
+
+    /** Whether the missed-alert notification is still on the phone, not yet tapped or swiped. */
+    fun missedShowing(context: Context) =
+        context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == MISSED_ID }
+
+    private fun builder(context: Context, channel: String, title: String, text: String, fixLabel: String?, fix: Intent) =
+        NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_stat_buzz)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .apply {
                 if (fixLabel != null) addAction(0, fixLabel,
                     PendingIntent.getActivity(context, 5, fix, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             }
-            .build()
+
+    private fun notify(context: Context, id: Int, n: android.app.Notification) {
         try {
-            context.getSystemService(NotificationManager::class.java).notify(PROBLEM_ID, n)
+            context.getSystemService(NotificationManager::class.java).notify(id, n)
         } catch (_: SecurityException) {
             // Notifications not allowed; the Air shelf still shows the problem.
         }
-    }
-
-    fun cancelProblem(context: Context) {
-        context.getSystemService(NotificationManager::class.java).cancel(PROBLEM_ID)
     }
 
     fun showRinging(context: Context, who: String) {

@@ -185,6 +185,8 @@ class Engine(private val app: Context) {
         var seen = false
         /** A try found the Air answering nothing, so this message may wait [SILENT_MESSAGE_RETRY_FOR_MS]. */
         var sawSilent = false
+        /** Elapsed realtime when this alert stops trying. */
+        val until: Long get() = if (sawSilent) alertAt + SILENT_MESSAGE_RETRY_FOR_MS else giveUpAt
     }
 
     /** Whether notification [key] is still on the phone; set by the notification listener once it is connected. */
@@ -409,55 +411,101 @@ class Engine(private val app: Context) {
             // A message the Air answered nothing for keeps trying for up to 3 min, every 15 s after its first 30 s:
             // on 16 Nov silent spells ended 61–141 s after four messages that were missed (Davor, 16 Nov). Late
             // tries are dropped once the notification is gone from the phone, as when it was read elsewhere.
+            // Messages waiting together try as one, so a silent spell costs one try per round rather than one per
+            // message (17 Nov: five messages made 37 connects in 3.4 min). Each keeps its own window (Davor, 17 Nov).
             val now = SystemClock.elapsedRealtime()
-            if (r.bandSilent && job.alertKey != null) job.sawSilent = true
+            val message = job.alertKey != null
+            val group = if (message) waiting.filter { it.alertKey != null } + job else listOf(job)
+            if (r.bandSilent && message) group.forEach { it.sawSilent = true }
             val wait = when {
                 r.bandSilent && job.ringKey != null -> SILENT_RING_RETRY_MS
-                r.bandSilent && job.alertKey != null && now + RETRY_MS >= job.giveUpAt -> SILENT_LATE_RETRY_MS
+                // The round comes at the pace of the message that still wants it soonest.
+                r.bandSilent && message && group.all { now + RETRY_MS >= it.giveUpAt } -> SILENT_LATE_RETRY_MS
                 else -> RETRY_MS
             }
-            val until = if (job.sawSilent) job.alertAt + SILENT_MESSAGE_RETRY_FOR_MS else job.giveUpAt
             // Test buzz gets the one retry a message would get when the Air answered nothing, as right after Bluetooth
             // came back on (15 Nov), so it doesn't fail where a message would buzz (Davor, 15 Nov). Its time still
             // counts from the press.
-            val retry = failed && !job.seen && if (job === testJob) r.bandSilent && job.tries < 2 else now + wait < until
+            val retry = failed && !job.seen && if (job === testJob) r.bandSilent && job.tries < 2 else now + wait < job.until
+            // Waiting messages whose window ends before the next round give up with this try.
+            val ending = if (failed && message) waiting.filter { it.alertKey != null && now + wait >= it.until } else emptyList()
+            val missTitles = mutableListOf<String>()
             bandState.value = bandState.value.copy(
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
                 lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
             )
             if (retry) {
-                note("${r.message} Trying again in ${seconds(wait)}")
+                val others = group.size - 1 - ending.size
+                note("${r.message} Trying again in ${seconds(wait)}" +
+                    if (others > 0) " for this and $others other waiting message${if (others == 1) "" else "s"}" else "")
                 waiting += job
-                main.postDelayed({ retryNow(job) }, wait)
+                if (!message) main.postDelayed({ retryNow(job) }, wait)
             } else if (failed && job.seen) {
                 note("Not retrying: the message was seen on the phone")
                 job.done(seen())
             } else {
                 if (failed) note("Gave up: ${r.message}")
-                if (failed && job.missTitle != null) missed(job.missTitle, r)
+                if (failed) job.missTitle?.let(missTitles::add)
                 if (r.taps > 0) { clearProblem(); linkBack() }
                 job.done(r)
-                if (r.taps > 0 && job.alertKey != null) coverWaiting(r)
+                if (r.taps > 0 && message) coverWaiting(r)
             }
+            if (ending.isNotEmpty()) {
+                note("Gave up too: ${ending.size} other waiting message${if (ending.size == 1) "" else "s"}, out of time")
+                waiting.removeAll(ending.toSet())
+                ending.forEach { it.missTitle?.let(missTitles::add); it.done(r) }
+            }
+            if (missTitles.isNotEmpty()) missed(missTitles, r, call = job.ringKey != null)
+            if (message && waiting.any { it.alertKey != null }) retryMessagesIn(wait)
             main.post { pump() }
         }
     }
 
-    /** Puts [job] back in the queue if it is still waiting, unless it is a late message no longer on the phone. */
+    /** Puts a waiting call or Test buzz [job] back in the queue. */
     private fun retryNow(job: Job) {
         if (!waiting.remove(job)) return
-        val key = job.alertKey
-        if (key != null && SystemClock.elapsedRealtime() >= job.giveUpAt && !isShowing(key)) {
+        if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
+        pump()
+    }
+
+    /** Elapsed realtime of the waiting messages' next round; 0 when none is set. */
+    private var messageRoundAt = 0L
+    private val messageRound = Runnable { retryMessages() }
+
+    /** Sets the waiting messages' next round [wait] from now, unless one is already set sooner. */
+    private fun retryMessagesIn(wait: Long) {
+        val at = SystemClock.elapsedRealtime() + wait
+        if (messageRoundAt in 1..at) return
+        messageRoundAt = at
+        main.removeCallbacks(messageRound)
+        main.postDelayed(messageRound, wait)
+    }
+
+    /**
+     * One round for the waiting messages: late ones no longer on the phone are dropped, and the oldest of the rest
+     * tries for all of them; when it buzzes, [coverWaiting] counts the others as buzzed with it.
+     */
+    private fun retryMessages() {
+        messageRoundAt = 0L
+        main.removeCallbacks(messageRound)
+        val now = SystemClock.elapsedRealtime()
+        val gone = waiting.filter { job -> job.alertKey?.let { now >= job.giveUpAt && !isShowing(it) } == true }
+        gone.forEach { job ->
             note("Not retrying: the ${job.what} is no longer on the phone, maybe read elsewhere")
+            waiting.remove(job)
             job.done(seen("Gone from the phone before the Fitbit Air was reached."))
-        } else if (job.ringKey != null) queue.addFirst(job) else queue.addLast(job)
+        }
+        waiting.filter { it.alertKey != null }.minByOrNull { it.alertAt }?.let { lead ->
+            waiting.remove(lead)
+            queue.addLast(lead)
+        }
         pump()
     }
 
     /** The Air answers again after a silent spell, so messages waiting out that spell try now rather than at their timer. */
     private fun onHeardAgain() {
-        waiting.filter { it.alertKey != null }.forEach(::retryNow)
+        if (waiting.any { it.alertKey != null }) retryMessages()
     }
 
     /** A message reached the Air, so other messages that already tried and are waiting count as buzzed with it. */
@@ -534,9 +582,9 @@ class Engine(private val app: Context) {
         keepAwake()
     }
 
-    // Problems while AirBuzz is closed (brief decision 41: "quiet, then loud"). One notification, updated in place:
-    // silent on the Problems channel while Bluetooth is off, loud on the Missed alerts channel once an alert didn't
-    // reach the Air. Never while AirBuzz is off or paused; cleared when the problem is fixed.
+    // Problems while AirBuzz is closed (brief decision 41: "quiet, then loud"): silent on the Problems channel while
+    // Bluetooth is off, cleared when it is back on; loud on the Missed alerts channel once an alert didn't reach the Air,
+    // kept until tapped or swiped (Davor, 17 Nov). Never while AirBuzz is off or paused.
 
     /** Why an alert didn't reach the Air, as the notification says it, with the one fix when there is one. */
     private enum class Cause(val text: String, val fixLabel: String?) {
@@ -548,9 +596,11 @@ class Engine(private val app: Context) {
         OUT_OF_REACH("Your Fitbit Air was out of reach", null),
     }
 
-    private class ProblemNote(val since: Long, var cause: Cause, var missed: Int = 0, var title: String? = null)
+    private class ProblemNote(val since: Long, var cause: Cause, var missed: Int = 0)
 
     private var problem: ProblemNote? = null
+    /** Alerts the missed-alert notification counts; it keeps counting until it is tapped or swiped. */
+    private var missedShown = 0
     private val pauseEnded = Runnable { onSettings(settings) }
 
     private val active: Boolean get() = settings.enabled && settings.pausedUntil <= System.currentTimeMillis()
@@ -580,7 +630,8 @@ class Engine(private val app: Context) {
         if (s.enabled) band.warmUp()
     }
 
-    private fun missed(title: String, r: BandResult) {
+    /** Alerts titled [titles] didn't reach the Air; [call] says the last of them was a call. */
+    private fun missed(titles: List<String>, r: BandResult, call: Boolean) {
         if (!active) return
         val cause = when {
             !bluetoothOn() -> Cause.BLUETOOTH_OFF
@@ -594,32 +645,36 @@ class Engine(private val app: Context) {
         }
         val p = problem ?: ProblemNote(System.currentTimeMillis(), cause).also { problem = it }
         p.cause = cause
-        p.missed++
-        p.title = title
+        p.missed += titles.size
         showProblem()
+        // The notification stays until tapped or swiped, even after a later buzz gets through, and counts every alert
+        // missed while it shows (Davor, 17 Nov).
+        missedShown = titles.size + if (Notifications.missedShowing(app)) missedShown else 0
+        val title = if (missedShown == 1) titles.single() else "$missedShown alerts didn't reach your Fitbit Air"
+        // A message gives up after 3 min of silence (Davor's wording, 17 Nov); a call after its ring, so it says less.
+        val text = if (cause == Cause.SILENT && !call) "Your Fitbit Air didn't answer for 3 minutes. It usually comes back by itself."
+            else cause.text
+        note("Notification: $missedShown missed (${cause.text})")
+        Notifications.showMissed(app, title, text, cause.fixLabel,
+            if (cause == Cause.BLUETOOTH_OFF) Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS) else Intent(app, MainActivity::class.java))
     }
 
+    /** Updates Home's shelf, and shows the silent notification while Bluetooth is off and nothing was missed yet. */
     private fun showProblem() {
         val p = problem ?: return
         bandState.value = bandState.value.copy(missed = p.missed, problemSince = p.since)
-        val bluetooth = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
-        val openApp = Intent(app, MainActivity::class.java)
         if (p.missed == 0) {
             note("Notification: Bluetooth is off")
-            Notifications.showProblem(app, loud = false, "Bluetooth is off", "Your Fitbit Air won't buzz until it's back on", "Turn on", bluetooth)
-        } else {
-            val title = if (p.missed == 1) p.title ?: "An alert didn't reach your Fitbit Air" else "${p.missed} alerts didn't reach your Fitbit Air"
-            note("Notification: ${p.missed} missed (${p.cause.text})")
-            Notifications.showProblem(app, loud = true, title, p.cause.text, p.cause.fixLabel,
-                if (p.cause == Cause.BLUETOOTH_OFF) bluetooth else openApp)
+            Notifications.showBluetoothOff(app)
         }
     }
 
+    /** Clears the problem from Home and the Bluetooth-off notification; a missed-alert notification stays. */
     private fun clearProblem() {
         if (problem == null) return
         problem = null
         note("Problem cleared")
-        Notifications.cancelProblem(app)
+        Notifications.cancelBluetoothOff(app)
         bandState.value = bandState.value.copy(missed = 0, problemSince = null)
     }
 
