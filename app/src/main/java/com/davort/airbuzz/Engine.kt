@@ -116,6 +116,11 @@ data class BandState(
     val lastReachedAt: Long? = null,
     /** The last command's failure, cleared by the next success. */
     val lastError: String? = null,
+    /**
+     * [lastError] came from the Air answering nothing although it was in reach (a silent spell), not from it being out
+     * of reach, so Home can say "not answering" (Davor, 17 Nov).
+     */
+    val notAnswering: Boolean = false,
     /** Alerts that didn't reach the Air since the current problem started, as the problem notification counts them. */
     val missed: Int = 0,
     /** Wall-clock time the current problem started (Bluetooth off, or the first missed alert); null when there is none. */
@@ -434,6 +439,7 @@ class Engine(private val app: Context) {
                 busy = false,
                 lastReachedAt = if (r.taps > 0) System.currentTimeMillis() else bandState.value.lastReachedAt,
                 lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
+                notAnswering = if (!failed) false else if (retry) bandState.value.notAnswering else r.bandSilent,
             )
             if (retry) {
                 val others = group.size - 1 - ending.size
@@ -557,7 +563,7 @@ class Engine(private val app: Context) {
         if (!settings.enabled || !bluetoothOn() || band.findBondedAir() == null) return
         note("Open link: down for ${down / 60_000} min; Home shows the Fitbit Air out of reach")
         linkWarned = true
-        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air is out of reach.")
+        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air is out of reach.", notAnswering = false)
     }
 
     /** The link is back, a command reached the Air, or the link isn't wanted (AirBuzz off, Bluetooth off). */
@@ -566,7 +572,7 @@ class Engine(private val app: Context) {
         linkDownAt = 0L
         if (linkWarned) note("Home no longer shows the Fitbit Air out of reach")
         val outOfReach = problem?.cause == Cause.OUT_OF_REACH
-        if (linkWarned || outOfReach) bandState.value = bandState.value.copy(lastError = null)
+        if (linkWarned || outOfReach) bandState.value = bandState.value.copy(lastError = null, notAnswering = false)
         linkWarned = false
         if (outOfReach) clearProblem()
     }

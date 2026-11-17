@@ -478,13 +478,13 @@ fun storeDemo(context: android.content.Context) =
         java.io.File(context.filesDir, "store-demo").exists()
 
 /** The first thing stopping AirBuzz, in the order it must be fixed. */
-fun firstProblem(context: android.content.Context, lastError: String?, reached: Long?): Problem? = when {
+fun firstProblem(context: android.content.Context, lastError: String?, notAnswering: Boolean, reached: Long?): Problem? = when {
     storeDemo(context) -> null
     !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Fitbit Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
     !Setup.hasNearby(context) -> Problem("Can't use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
     Setup.bondedAirAddress(context) == null -> Problem("No Fitbit Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
     !Setup.hasListener(context) -> Problem("Can't see alerts", "Notification access is off", "Allow", Curve.BELL_OFF, Fix.LISTENER)
-    lastError != null -> Problem("Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
+    lastError != null -> Problem(if (notAnswering) "Fitbit Air not answering" else "Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
     else -> null
 }
 
@@ -497,7 +497,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     val tick = rememberResumeTick()
     val now = rememberNow()
     val reached = lastReached(band.lastReachedAt, entries)
-    val problem = remember(tick, band.lastError, reached) { firstProblem(context, band.lastError, reached) }
+    val problem = remember(tick, band.lastError, band.notAnswering, reached) { firstProblem(context, band.lastError, band.notAnswering, reached) }
     val fixer = rememberFixer(go) {}
     val paused = s.enabled && s.pausedUntil > now
     val live = s.enabled && !paused && reached != null
@@ -636,7 +636,8 @@ fun reasonLabel(e: Entry): String = when (e.reason) {
     "phone in use" -> "Phone in use"
     "paused" -> "Paused"
     "AirBuzz is off" -> "AirBuzz off"
-    "gone from the phone before the Fitbit Air was reached" -> "Already gone from your phone"
+    // The app took its notification back before the Air answered, usually because it was read elsewhere (Davor, 17 Nov).
+    "gone from the phone before the Fitbit Air was reached" -> "Not buzzed · cleared by ${e.appLabel} first"
     else -> e.reason.replaceFirstChar { it.uppercase() }
 }
 
