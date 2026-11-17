@@ -22,7 +22,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -45,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -59,7 +66,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -602,32 +608,66 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
     val dayLabel = when (daysAgo) { 0 -> "Today · "; 1 -> "Yesterday · "; else -> "" } + dayFormat.format(Date(start))
     // Large text or a long title pushes the totals below the strip.
     val compact = LocalDensity.current.fontScale <= 1.15f
+    // Changing day (Davor, 17 Nov): the strip follows the finger, with resistance where there is no day to go to. Let go
+    // past a fifth of the width, or flick, and it slides out that way and the other day slides in from the far side;
+    // otherwise it springs back. The day's words and list fade and drift with it, a little; the arrows do the same.
+    val scope = rememberCoroutineScope()
+    val shift = remember { Animatable(0f) }
+    // While the finger drags, the day only dims a little, so it never vanishes under a long drag; it fades out on release.
+    val fade = remember { Animatable(1f) }
+    var width by remember { mutableIntStateOf(1) }
+    fun settle() = scope.launch {
+        launch { fade.animateTo(1f, tween(200, easing = Motion.Out)) }
+        shift.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+    }
+    fun go(older: Boolean) {
+        if (!(if (older) daysAgo < 6 else daysAgo > 0)) { settle(); return }
+        val dir = if (older) 1f else -1f
+        scope.launch {
+            val out = launch { fade.animateTo(0f, tween(120, easing = Motion.In)) }
+            shift.animateTo(dir * maxOf(kotlin.math.abs(shift.value) + width * 0.1f, width * 0.4f), tween(120, easing = Motion.In))
+            out.join()
+            daysAgo += if (older) 1 else -1
+            shift.snapTo(-dir * width * 0.25f)
+            launch { fade.animateTo(1f, tween(220, easing = Motion.Out)) }
+            shift.animateTo(0f, tween(260, easing = Motion.Out))
+        }
+    }
+    val dayFade = Modifier.graphicsLayer { translationX = shift.value * 0.12f; alpha = fade.value }
 
     Page {
         ScreenBar("Activity", onBack = onBack) {
-            if (compact) Totals(buzzed, ignored, 28, 32, 16, Alignment.End)
+            if (compact) Box(dayFade) { Totals(buzzed, ignored, 28, 32, 16, Alignment.End) }
         }
         Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label(dayLabel, Modifier.weight(1f))
-                DayArrow(Glyph.BACK, "Previous day", daysAgo < 6) { daysAgo++ }
-                DayArrow(Glyph.CHEVRON, "Next day", daysAgo > 0) { daysAgo-- }
+                Label(dayLabel, Modifier.weight(1f).then(dayFade))
+                DayArrow(Glyph.BACK, "Previous day", daysAgo < 6) { go(older = true) }
+                DayArrow(Glyph.CHEVRON, "Next day", daysAgo > 0) { go(older = false) }
             }
-            var drag by remember { mutableFloatStateOf(0f) }
-            BuzzStrip(entries, start, Modifier.pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { drag = 0f },
-                    onDragEnd = {
-                        if (drag > 60f) daysAgo = (daysAgo + 1).coerceAtMost(6)
-                        if (drag < -60f) daysAgo = (daysAgo - 1).coerceAtLeast(0)
-                    },
-                ) { _, amount -> drag += amount }
-            }, height = 44.dp, tall = 26.dp, short = 9.dp, hours = true, line = if (daysAgo == 0) Modifier.todayLine() else Modifier)
+            val dragState = rememberDraggableState { d ->
+                val past = (shift.value + d > 0 && daysAgo >= 6) || (shift.value + d < 0 && daysAgo <= 0)
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    shift.snapTo(shift.value + if (past) d * 0.3f else d)
+                    fade.snapTo(1f - (kotlin.math.abs(shift.value) / width * 1.2f).coerceAtMost(0.5f))
+                }
+            }
+            BuzzStrip(entries, start, Modifier.onSizeChanged { width = it.width.coerceAtLeast(1) }
+                .draggable(dragState, Orientation.Horizontal, onDragStopped = { v ->
+                    val f = shift.value / width
+                    when {
+                        f > 0.2f || (v > 1000f && f > 0f) -> go(older = true)
+                        f < -0.2f || (v < -1000f && f < 0f) -> go(older = false)
+                        else -> settle()
+                    }
+                })
+                .graphicsLayer { translationX = shift.value; alpha = fade.value }, height = 44.dp, tall = 26.dp, short = 9.dp, hours = true, line = if (daysAgo == 0) Modifier.todayLine() else Modifier)
         }
-        if (!compact) Totals(buzzed, ignored, 40, 44, 40, Alignment.Start)
+        if (!compact) Box(dayFade) { Totals(buzzed, ignored, 40, 44, 40, Alignment.Start) }
         Text("AirBuzz saw ${day.size} calls and messages $word. Ignored ones reached your phone, but your rules kept them off your wrist. Tap an app to let it buzz.",
-            style = Type.small, color = a.muted, modifier = Modifier.padding(vertical = 8.dp))
+            style = Type.small, color = a.muted, modifier = dayFade.padding(vertical = 8.dp))
         Seg(listOf(0 to "All", 1 to "Buzzed", 2 to "Ignored"), filter) { filter = it }
+        Column(dayFade, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (filter == 2) {
             val sources = day.filter { it.fate == Fate.IGNORED }.groupBy { source(it) }.entries.sortedByDescending { it.value.size }
             if (sources.isEmpty()) Text("Nothing was ignored $word.", style = Type.small, color = a.muted)
@@ -645,6 +685,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
             val rows = day.filter { filter == 0 || it.fate == Fate.BUZZED }.reversed()
             if (rows.isEmpty()) Text("Nothing ${if (filter == 1) "buzzed" else "happened"} $word.", style = Type.small, color = a.muted)
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { rows.forEach { HistoryRow(it) } }
+        }
         }
     }
 }
