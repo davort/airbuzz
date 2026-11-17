@@ -229,8 +229,8 @@ fun Caret(color: Color) {
 
 /** Small uppercase label in Google Sans Code. */
 @Composable
-fun Label(text: String, modifier: Modifier = Modifier, color: Color = LocalAirColors.current.muted) {
-    Text(text.uppercase(), style = Type.label, color = color, maxLines = 1, softWrap = false, modifier = modifier)
+fun Label(text: String, modifier: Modifier = Modifier, color: Color = LocalAirColors.current.muted, wrap: Boolean = false) {
+    Text(text.uppercase(), style = Type.label, color = color, maxLines = if (wrap) 2 else 1, softWrap = wrap, modifier = modifier)
 }
 
 // Sentences with blanks (decision 11).

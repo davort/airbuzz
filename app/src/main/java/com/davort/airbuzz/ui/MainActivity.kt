@@ -637,7 +637,8 @@ fun reasonLabel(e: Entry): String = when (e.reason) {
     "paused" -> "Paused"
     "AirBuzz is off" -> "AirBuzz off"
     // The app took its notification back before the Air answered, usually because it was read elsewhere (Davor, 17 Nov).
-    "gone from the phone before the Fitbit Air was reached" -> "Not buzzed · cleared by ${e.appLabel} first"
+    // A no-break space keeps "first" with the app's name, so a wrap never leaves it alone on a line.
+    "gone from the phone before the Fitbit Air was reached" -> "Not buzzed · cleared by ${e.appLabel}\u00A0first"
     else -> e.reason.replaceFirstChar { it.uppercase() }
 }
 

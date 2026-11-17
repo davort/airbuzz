@@ -634,7 +634,8 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
             else Group(sources.map { (src, list) ->
                 @Composable {
                     GroupRow(sheetFor(list.first())?.let { kind -> { open(kind) } }, vertical = 10.dp) {
-                        TwoLine(src.first, Modifier.weight(1f)) { Label(src.second) }
+                        // A long reason, such as "cleared by WhatsApp first", takes a second line rather than being cut.
+                        TwoLine(src.first, Modifier.weight(1f)) { Label(src.second, wrap = true) }
                         Text("${list.size}", style = Type.bodyMedium.copy(fontFeatureSettings = "tnum"), color = a.ink)
                         GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
                     }
