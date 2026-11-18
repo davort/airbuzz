@@ -6,6 +6,7 @@ import android.net.Uri
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import androidx.compose.ui.text.style.LineBreak
 import android.provider.Settings as SystemSettings
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
@@ -220,7 +221,8 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
                     Label("© 2026 Misek AB")
                 }
             }
-            Text("Free software under GPL-3.0. You can use, study, share and change it.", style = Type.small, color = a.ink)
+            Text("Free software under GPL-3.0. You can use, study, share and change it. It comes with no warranty.",
+                style = Type.small.copy(lineBreak = LineBreak.Heading), color = a.ink)
         }
         Group(listOf(
             { GroupRow({ openWeb(context, "https://github.com/davort/airbuzz") }) {
