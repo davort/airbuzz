@@ -154,7 +154,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
      * closed and handed back to Google Health after every command. On Davor's Air this took a message buzz from
      * a 3.1 s median to 0.5 s, and Google Health kept syncing (research notes, test app 0.4).
      */
-    var keepLinkOpen = false
+    var keepLinkOpen = true
         set(value) {
             field = value
             if (!value) main.removeCallbacks(warmRetry)

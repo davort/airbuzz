@@ -725,13 +725,12 @@ class Engine(private val app: Context) {
     companion object {
         const val TAG = "AirBuzz"
         /**
-         * Keep a listen-only link to the Air open between alerts (0.5.9–0.6.49). Off from 0.6.50: every silent spell
-         * logged came after the open link arrived, often right after it dropped, and the most similar app connects
-         * only per alert. Each buzz then connects afresh (3–10 s measured), and without the link there is no
-         * "Google Health is syncing" hint, no out-of-reach warning and no early retry when the Air is heard again.
-         * 0.7.0 keeps it off unless a silent spell happens without it or buzzes regularly pass about 15 s (Davor, 18 Nov).
+         * Keep a listen-only link to the Air open between alerts. It was off in 0.6.50 to test whether it causes the
+         * silent spells; on 18 Nov the worn band went silent for 23 min without it, so it is back from 0.6.51 (Davor,
+         * 18 Nov). It brings the "Google Health is syncing" hint, the out-of-reach warning, the early retry when the Air
+         * is heard again, and faster buzzes.
          */
-        const val OPEN_LINK = false
+        const val OPEN_LINK = true
         const val RETRY_MS = 5_000L
         /** The wait before a call's next try when the Air answered nothing on the last one. */
         const val SILENT_RING_RETRY_MS = 1_000L
