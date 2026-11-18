@@ -182,7 +182,7 @@ private const val APACHE = "licenses/Apache-2.0.txt"
 
 /** Everything AirBuzz ships under its own licence (THIRD_PARTY_NOTICES.md), read from the app's legal/ assets. */
 val Licences = listOf(
-    Licence("AirBuzz", "GPL-3.0", listOf("Licence" to "LICENSE")),
+    Licence("AirBuzz", "GPL-3.0 · with additional terms", listOf("Notice" to "NOTICE.md", "Licence" to "LICENSE")),
     Licence("Third-party notices", "Who made what, and where", listOf("Notices" to "THIRD_PARTY_NOTICES.md")),
     Licence("Golden Gate", "Apache-2.0 · with notice", listOf("Notice" to "licenses/golden-gate-NOTICE.txt",
         "Copyright" to "licenses/golden-gate-Apache-2.0.txt", "Licence" to APACHE)),

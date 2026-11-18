@@ -4,7 +4,7 @@ Issues and feedback are very welcome. If something didn't buzz, buzzed when it s
 
 AirBuzz is a small project by Misek AB. Before you write code, please open an issue so we can agree on the change first. Pull requests that weren't discussed first may be closed.
 
-Contributions are accepted under the GPL-3.0, the licence of the rest of AirBuzz (see `LICENSE`). If you add code or assets from somewhere else, list them in `THIRD_PARTY_NOTICES.md` with their licence.
+Contributions are accepted under the GPL-3.0 with the additional terms in `NOTICE.md`, the licence of the rest of AirBuzz (see `LICENSE`). If you add code or assets from somewhere else, list them in `THIRD_PARTY_NOTICES.md` with their licence.
 
 ## Keep personal data out of issues
 

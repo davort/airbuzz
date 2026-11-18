@@ -1,6 +1,6 @@
 # Third-party notices
 
-AirBuzz is licensed under the GNU General Public License v3.0 (see `LICENSE`). It includes or builds on the following, under their own licences. The full texts are in `licenses/`, and the app carries all of them, this file and `LICENSE` as assets under `legal/`.
+AirBuzz is licensed under the GNU General Public License v3.0 (see `LICENSE`), with the additional terms in `NOTICE.md`. It includes or builds on the following, under their own licences. The full texts are in `licenses/`, and the app carries all of them, this file and `LICENSE` as assets under `legal/`.
 
 | Component | Where | Licence |
 |---|---|---|

@@ -14,7 +14,7 @@ val releaseKeystore: File? = System.getenv("AIRBUZZ_KEYSTORE")?.takeIf { it.isNo
 // Notices" and Apache-2.0 section 4 (Golden Gate's NOTICE is in licenses/).
 val licenceAssets = layout.buildDirectory.dir("generated/licence-assets")
 val syncLicenceAssets by tasks.registering(Sync::class) {
-    from(rootProject.file("LICENSE"), rootProject.file("THIRD_PARTY_NOTICES.md"))
+    from(rootProject.file("LICENSE"), rootProject.file("NOTICE.md"), rootProject.file("THIRD_PARTY_NOTICES.md"))
     from(rootProject.file("licenses")) { into("licenses") }
     into(licenceAssets.map { it.dir("legal") })
 }
