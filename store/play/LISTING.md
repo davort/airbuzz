@@ -1,6 +1,6 @@
 # Play listing
 
-The text and images for AirBuzz's Google Play listing, approved by Davor on 14–15 Nov 2026 (issue #9). Paste the text into Play Console; upload the PNGs in this folder as phone screenshots, light or dark.
+The text and images for AirBuzz's Google Play listing, approved by Davor on 14–15 Nov 2026 (issue #9); the short description and second paragraph name notifications, texts and vibrate for search since 18 Nov. Paste the text into Play Console; upload the PNGs in this folder as phone screenshots, light or dark.
 
 Naming (brief decision 47): "Google Fitbit Air" on first mention, "Fitbit Air" after; never "Fitbit" or "Google" in the app name, icon or graphics.
 
@@ -10,13 +10,13 @@ AirBuzz
 
 ## Short description
 
-Your Google Fitbit Air buzzes for the calls and messages you pick.
+Make your Google Fitbit Air vibrate for the calls and notifications you pick.
 
 ## Full description
 
 Your Google Fitbit Air tracks your sleep, steps and heart rate. It just doesn't buzz when Mum calls. AirBuzz fixes that.
 
-Pick the people whose calls should ring your Fitbit Air, and the apps whose messages should buzz it. Calls buzz every second until you answer, from the phone app, WhatsApp and Signal. Twenty messages in fifteen seconds buzz once. Everything else stays on your phone: no deals, no likes, no delivery updates.
+Pick the people whose calls should ring your Fitbit Air, and the apps whose notifications should make it vibrate, such as texts, WhatsApp or Telegram. Calls buzz every second until you answer, from the phone app, WhatsApp and Signal. Twenty messages in fifteen seconds buzz once. Everything else stays on your phone: no deals, no likes, no delivery updates.
 
 Stay quiet at night, in Do Not Disturb, or while you're using the phone. The people you choose can still get through.
 
