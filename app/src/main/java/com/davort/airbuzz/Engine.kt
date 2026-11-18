@@ -397,7 +397,7 @@ class Engine(private val app: Context) {
         val job = queue.pollFirst() ?: return
         running = job
         bandState.value = bandState.value.copy(busy = true)
-        band.keepLinkOpen = settings.enabled
+        band.keepLinkOpen = settings.enabled && OPEN_LINK
         job.tries++
         band.run(job.cmd, {
             if (job.what != null) {
@@ -631,8 +631,8 @@ class Engine(private val app: Context) {
         val left = s.pausedUntil - System.currentTimeMillis()
         if (s.enabled && left > 0) main.postDelayed(pauseEnded, left)
         checkBluetooth()
-        // The open link stays up while AirBuzz is on, paused included, since chosen callers still ring.
-        if (!band.busy) band.keepLinkOpen = s.enabled
+        // With [OPEN_LINK] the link stays up while AirBuzz is on, paused included, since chosen callers still ring.
+        if (!band.busy) band.keepLinkOpen = s.enabled && OPEN_LINK
         if (s.enabled) band.warmUp()
     }
 
@@ -723,6 +723,14 @@ class Engine(private val app: Context) {
 
     companion object {
         const val TAG = "AirBuzz"
+        /**
+         * Keep a listen-only link to the Air open between alerts (0.5.9–0.6.49). Off from 0.6.50: every silent spell
+         * logged came after the open link arrived, often right after it dropped, and the most similar app connects
+         * only per alert. Each buzz then connects afresh (3–10 s measured), and without the link there is no
+         * "Google Health is syncing" hint, no out-of-reach warning and no early retry when the Air is heard again.
+         * 0.7.0 keeps it off unless a silent spell happens without it or buzzes regularly pass about 15 s (Davor, 18 Nov).
+         */
+        const val OPEN_LINK = false
         const val RETRY_MS = 5_000L
         /** The wait before a call's next try when the Air answered nothing on the last one. */
         const val SILENT_RING_RETRY_MS = 1_000L
