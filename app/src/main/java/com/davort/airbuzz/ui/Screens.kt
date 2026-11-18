@@ -488,7 +488,7 @@ fun TestBuzzReadout(engine: Engine, button: String) {
         grade != null -> "Your Fitbit Air buzzed ${seconds(buzzedMs)} after you pressed $button. ${grade.sentence}"
         connecting -> "Connecting to your Fitbit Air…"
         failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
-        else -> "Press $button to buzz your Fitbit Air once and see how long it takes. Under 3 s is excellent, under 5 s is good."
+        else -> "Press $button to buzz your Fitbit Air once and see how long it takes. Under ${EXCELLENT_MS / 1000} s is excellent, under ${GOOD_MS / 1000} s is good."
     }, style = Type.body, color = a.ink)
     Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
     StepList(steps, if (connecting) elapsed else null)
@@ -537,22 +537,33 @@ fun shareLog(context: android.content.Context, engine: Engine) {
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share log"))
 }
 
+/**
+ * Test buzz's bands follow [Engine.OPEN_LINK] (Davor, 18 Nov): with the link kept open a buzz needs no connect, so 3 s
+ * is excellent and 5 s good; with each buzz connecting afresh (3–10 s measured), 5 s is excellent and 10 s good.
+ */
+val EXCELLENT_MS = if (Engine.OPEN_LINK) 3000L else 5000L
+val GOOD_MS = if (Engine.OPEN_LINK) 5000L else 10_000L
+/** The timeline's length: a little past Good, so a slow buzz still lands on it. */
+private val SPAN_MS = if (Engine.OPEN_LINK) 8000L else 12_000L
+
 /** Test buzz's grade for a time to tap (issue #13), judged on the tenth of a second the screen shows. */
 enum class Grade(val word: String, val sentence: String) {
-    EXCELLENT("Excellent", "Under 3 s is excellent."),
-    GOOD("Good", "Under 5 s is good; under 3 s is excellent."),
-    SLOW("Slow", "That's slower than usual. The first buzz after a while takes longest, so test again."),
+    EXCELLENT("Excellent", "Under ${EXCELLENT_MS / 1000} s is excellent."),
+    // A no-break space keeps "excellent." from ending alone on a line.
+    GOOD("Good", "Under ${GOOD_MS / 1000} s is good; under ${EXCELLENT_MS / 1000} s is\u00A0excellent."),
+    SLOW("Slow", if (Engine.OPEN_LINK) "That's slower than usual. The first buzz after a while takes longest, so test again."
+        else "That's slower than usual. Google Health may have been syncing with it, so test again."),
 }
 
 fun gradeOf(ms: Long): Grade {
     val shown = (ms + 50) / 100 * 100
-    return when { shown <= 3000 -> Grade.EXCELLENT; shown <= 5000 -> Grade.GOOD; else -> Grade.SLOW }
+    return when { shown <= EXCELLENT_MS -> Grade.EXCELLENT; shown <= GOOD_MS -> Grade.GOOD; else -> Grade.SLOW }
 }
 
 /**
- * 0–8 s at 1/8 of the width per second, with the Excellent (to 3 s) and Good (to 5 s) bands shaded, the steps drawn as
- * fading ink, and Buzz sent in the accent up to the buzz mark (issue #14). The axis shows only each second's number,
- * centred under its tick; the grade is said above it.
+ * 0 to [SPAN_MS], with the Excellent and Good bands shaded, the steps drawn as fading ink, and Buzz sent in the accent
+ * up to the buzz mark (issue #14). A tick for each second; the axis numbers each second up to 8 s, every other second
+ * on the longer 12 s line so they don't crowd, centred under their ticks. The grade is said above it.
  */
 @Composable
 fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
@@ -560,11 +571,11 @@ fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
     Box(Modifier.fillMaxWidth().height(48.dp)) {
         Canvas(Modifier.fillMaxWidth().height(28.dp)) {
             val w = size.width
-            fun x(ms: Long) = (ms / 8000f).coerceIn(0f, 1f) * w
+            fun x(ms: Long) = (ms / SPAN_MS.toFloat()).coerceIn(0f, 1f) * w
             // Light mode needs the stronger pair to show both bands on its pale background.
             val (excellent, good) = if (a.dark) a.tint to a.tint.copy(alpha = 0.5f) else a.tintPressed to a.tint
-            drawRoundRect(excellent, Offset(0f, 4.dp.toPx()), Size(x(3000), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
-            drawRoundRect(good, Offset(x(3000), 4.dp.toPx()), Size(x(5000) - x(3000), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
+            drawRoundRect(excellent, Offset(0f, 4.dp.toPx()), Size(x(EXCELLENT_MS), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
+            drawRoundRect(good, Offset(x(EXCELLENT_MS), 4.dp.toPx()), Size(x(GOOD_MS) - x(EXCELLENT_MS), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
             drawRect(a.line, Offset(0f, 11.dp.toPx()), Size(w, 2.dp.toPx()))
             if (liveMs != null) {
                 drawRect(a.ink, Offset(0f, 9.dp.toPx()), Size(x(liveMs), 6.dp.toPx()))
@@ -577,16 +588,18 @@ fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
                 }
                 if (!failed && endMs != null && endMs > from) drawRect(a.accent, Offset(x(from), 9.dp.toPx()), Size(x(endMs) - x(from), 6.dp.toPx()))
             }
-            for (s in 0..8) drawRect(a.muted, Offset((x(s * 1000L)).coerceAtMost(w - 1.dp.toPx()), 22.dp.toPx()), Size(1.dp.toPx(), 5.dp.toPx()))
+            for (s in 0..(SPAN_MS / 1000).toInt()) drawRect(a.muted, Offset((x(s * 1000L)).coerceAtMost(w - 1.dp.toPx()), 22.dp.toPx()), Size(1.dp.toPx(), 5.dp.toPx()))
             endMs?.let { drawRect(if (failed) a.warn else a.accent, Offset(x(it).coerceAtMost(w - 2.dp.toPx()), 0f), Size(2.dp.toPx(), 24.dp.toPx())) }
         }
-        Layout({ for (s in 0..8) Label("$s") }, Modifier.fillMaxWidth().offset(y = 30.dp)) { labels, constraints ->
+        val secs = (SPAN_MS / 1000).toInt()
+        val every = if (secs > 8) 2 else 1
+        Layout({ for (s in 0..secs step every) Label("$s") }, Modifier.fillMaxWidth().offset(y = 30.dp)) { labels, constraints ->
             val placed = labels.map { it.measure(Constraints()) }
             val w = constraints.maxWidth.toFloat()
             val tick = 1.dp.toPx()
             layout(constraints.maxWidth, placed.maxOf { it.height }) {
                 // The same x the Canvas draws each 1 dp tick at, so the last one stays inside the line.
-                placed.forEachIndexed { s, p -> p.place((minOf(w * s / 8f, w - tick) + tick / 2 - p.width / 2f).roundToInt(), 0) }
+                placed.forEachIndexed { i, p -> val s = i * every; p.place((minOf(w * s / secs.toFloat(), w - tick) + tick / 2 - p.width / 2f).roundToInt(), 0) }
             }
         }
     }
