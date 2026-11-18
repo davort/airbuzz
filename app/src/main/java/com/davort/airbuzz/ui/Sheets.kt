@@ -302,6 +302,7 @@ fun LineRow(first: Boolean, onClick: (() -> Unit)? = null, content: @Composable 
 fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () -> Unit) {
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
+    val cascaded = remember { mutableStateListOf<Person>() }
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     Sheet("Who can ring your Fitbit\u00A0Air", onClose) {
@@ -314,7 +315,15 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
                     Gap(4)
                     // At the top, so it stays in reach however long the list grows.
                     TextAction("Add people", pick)
-                    PeopleRows(s.people) { list -> engine.store.update { it.copy(people = list) } }
+                    PeopleRows(s.people) { list -> engine.store.update { st ->
+                        // Someone removed here can't ring at all, so they leave ring anyway too; Undo puts them back in both.
+                        val gone = st.people - list.toSet()
+                        val back = list - st.people.toSet()
+                        cascaded += st.ringAnywayPeople.filter { it in gone }
+                        val restore = back.filter { it in cascaded && it !in st.ringAnywayPeople }
+                        cascaded -= restore.toSet()
+                        st.copy(people = list, ringAnywayPeople = st.ringAnywayPeople - gone.toSet() + restore)
+                    } }
                 }
                 val recent = recentCallers(entries, s, regionOf(context))
                 if (recent.isNotEmpty()) Column {
@@ -408,7 +417,7 @@ private fun QuietNote(s: Settings, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CurveIcon(Curve.MOON, 20.dp, a.muted, 1.8f)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(if (who == null) "Quiet times silence calls too." else "Only $who ${ring(s.ringAnywayPeople.size)} in quiet times.", style = Type.small, color = a.muted)
+            Text(if (who == null) "Quiet times silence calls too." else "Only $who ${ring(ringingAnyway(s).size)} in quiet times.", style = Type.small, color = a.muted)
             Text(if (who == null) "Let someone ring anyway" else "Change in Stay quiet", style = Type.smallMedium, color = a.accent)
         }
         GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
@@ -712,9 +721,47 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             TwoLine("Let some people ring anyway", Modifier.weight(1f)) { Label(if (s.ringAnyway) "Through quiet times and pauses" else "Off") }
             AirSwitch(s.ringAnyway, { on -> update { it.copy(ringAnyway = on) } })
         }
-        if (s.ringAnyway) {
+        if (s.ringAnyway && s.callMode != CallMode.CHOSEN) {
             TextAction("Add people", pick)
             PeopleRows(s.ringAnywayPeople) { list -> update { it.copy(ringAnywayPeople = list) } }
+        }
+    }
+    // In Chosen, ring anyway picks from the chosen callers, so everyone added can ring (Davor, 18 Nov). Someone else
+    // picked from contacts becomes a chosen caller too. Anyone on the list who isn't chosen, from before or from
+    // another mode, waits under "Can't ring yet" until they are added to Who can ring or removed.
+    if (s.ringAnyway && s.callMode == CallMode.CHOSEN) {
+        if (ringingAnyway(s).isNotEmpty()) Column {
+            Label("Rings anyway")
+            Gap(4)
+            PeopleRows(ringingAnyway(s)) { list -> update { it.copy(ringAnywayPeople = list + it.ringAnywayPeople.filter { p -> !isChosen(it, p) }) } }
+        }
+        val rest = s.people.filter { p -> ringingAnyway(s).none { it == p || (p.number != null && it.number == p.number) } }
+        val waiting = s.ringAnywayPeople.filter { !isChosen(s, it) }
+        if (waiting.isNotEmpty()) Column {
+            Label("Can't ring yet · not in Who can ring")
+            Gap(4)
+            waiting.forEachIndexed { i, p ->
+                LineRow(i == 0) {
+                    Avatar(p.name)
+                    TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
+                    Pill("Allow", { update { st -> st.copy(people = st.people + p) } }, filled = false, small = true)
+                    IconAction("Remove ${p.name}", { update { st -> st.copy(ringAnywayPeople = st.ringAnywayPeople - p) } }) {
+                        GlyphIcon(Glyph.CLOSE, 18.dp, a.muted)
+                    }
+                }
+            }
+        }
+        Column {
+            if (rest.isNotEmpty()) { Label("From Who can ring"); Gap(4) }
+            rest.forEachIndexed { i, p ->
+                LineRow(i == 0) {
+                    Avatar(p.name)
+                    TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
+                    Pill("Add", { update { st -> st.copy(ringAnywayPeople = st.ringAnywayPeople + p) } }, filled = false, small = true)
+                }
+            }
+            TextAction(if (rest.isEmpty()) "Add people" else "Someone else", pick)
+            Text("They join Who can ring too.", style = Type.small, color = a.muted)
         }
     }
     if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)
@@ -747,7 +794,7 @@ fun PauseSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
         } else engine.store.update { it.copy(pausedUntil = until) }
         onClose()
     }) {
-        PauseBody(options, choice, ringsAnyway(s)?.let { "$it still ${ring(s.ringAnywayPeople.size)} while paused, but not when AirBuzz is off." }
+        PauseBody(options, choice, ringsAnyway(s)?.let { "$it still ${ring(ringingAnyway(s).size)} while paused, but not when AirBuzz is off." }
             ?: "Nothing buzzes while paused.") { choice = it }
     }
 }

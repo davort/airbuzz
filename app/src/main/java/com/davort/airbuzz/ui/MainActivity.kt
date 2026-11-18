@@ -246,9 +246,18 @@ fun summarize(names: List<String>, none: String): String = when (names.size) {
     else -> "${names[0]}, ${names[1]} and ${names.size - 2} more"
 }
 
+/** Whether [p] is one of the chosen callers, by number when it has one, as [Rules.decideCall] matches them. */
+fun isChosen(s: AirSettings, p: Person): Boolean = s.people.any { it == p || (p.number != null && it.number == p.number) }
+
+/** The ring-anyway people who can ring at all: in Chosen, only those who are chosen too (Davor, 18 Nov). */
+fun ringingAnyway(s: AirSettings): List<Person> = when {
+    !s.ringAnyway -> emptyList()
+    s.callMode == CallMode.CHOSEN -> s.ringAnywayPeople.filter { isChosen(s, it) }
+    else -> s.ringAnywayPeople
+}
+
 /** Who rings through quiet times and a pause, such as "Bruna" or "Bruna and Mum", or null when nobody does. */
-fun ringsAnyway(s: AirSettings): String? =
-    if (s.ringAnyway && s.ringAnywayPeople.isNotEmpty()) summarize(s.ringAnywayPeople.map { it.name }, "") else null
+fun ringsAnyway(s: AirSettings): String? = ringingAnyway(s).takeIf { it.isNotEmpty() }?.let { summarize(it.map { p -> p.name }, "") }
 
 fun quietRules(s: AirSettings): List<String> = buildList {
     if (s.quietHours) add("at night")
@@ -385,7 +394,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                         Part.Blank("Buzzes per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
                     ))
                 } },
-                { RuleItem("Quiet", if (ringsAnyway(s) == null) "Calls too" else s.ringAnywayPeople.size.let { n -> if (n == 1) "1 person rings anyway" else "$n people ring anyway" }) {
+                { RuleItem("Quiet", if (ringsAnyway(s) == null) "Calls too" else ringingAnyway(s).size.let { n -> if (n == 1) "1 person rings anyway" else "$n people ring anyway" }) {
                     Sentence(listOf(
                         Part.Words("Stay quiet"),
                         Part.Blank("When to stay quiet", summarizeQuiet(quietRules(s)), after = ".", open = sheet == SheetKind.QUIET) { open(SheetKind.QUIET) },
@@ -657,7 +666,10 @@ fun rememberContactPicker(engine: Engine, ringAnyway: Boolean = false): () -> Un
                 val number = c.getString(1)?.let { Rules.normalize(it, regionOf(context)) }
                 val p = Person(name, number)
                 engine.store.update { s ->
-                    if (ringAnyway) { if (p in s.ringAnywayPeople) s else s.copy(ringAnywayPeople = s.ringAnywayPeople + p) }
+                    // In Chosen, someone picked to ring anyway becomes a chosen caller too, or they could never ring.
+                    if (ringAnyway) s.copy(
+                        ringAnywayPeople = if (p in s.ringAnywayPeople) s.ringAnywayPeople else s.ringAnywayPeople + p,
+                        people = if (s.callMode != CallMode.CHOSEN || isChosen(s, p)) s.people else s.people + p)
                     else if (p in s.people) s else s.copy(people = s.people + p)
                 }
             }
