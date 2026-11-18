@@ -104,21 +104,24 @@ object Rules {
         if (start == end) false else if (start < end) minute in start until end else minute >= start || minute < end
 
     /**
-     * Who may ring comes from the call mode; quiet times and a pause then silence everyone except the ring-anyway
-     * people, while ring anyway is on, in every mode. Off silences everyone.
+     * Who may ring comes from the call mode alone; quiet times and a pause then silence everyone except the ring-anyway
+     * people, while ring anyway is on. Ring anyway never lets in someone the mode doesn't (Davor, 18 Nov). Off silences
+     * everyone.
      */
     fun decideCall(caller: Caller, s: Settings, m: Moment, region: String): Outcome {
         if (!s.enabled) return Outcome.Skip("AirBuzz is off")
-        if (s.ringAnyway && s.ringAnywayPeople.any { matches(it, caller, region) }) return Outcome.Buzz
         val allowed = when (s.callMode) {
             CallMode.CHOSEN -> s.people.any { matches(it, caller, region) }
             CallMode.CONTACTS -> caller.isContact
             CallMode.ANYONE -> true
         }
         if (!allowed) return Outcome.Skip("not chosen")
-        quietReason(s, m)?.let { return Outcome.Skip(it) }
-        return Outcome.Buzz
+        val quiet = quietReason(s, m) ?: return Outcome.Buzz
+        return if (ringsAnyway(caller, s, region)) Outcome.Buzz else Outcome.Skip(quiet)
     }
+
+    fun ringsAnyway(caller: Caller, s: Settings, region: String): Boolean =
+        s.ringAnyway && s.ringAnywayPeople.any { matches(it, caller, region) }
 
     fun decideMessage(pkg: String, s: Settings, m: Moment, lastBuzzForApp: Long?): Outcome {
         if (!s.enabled) return Outcome.Skip("AirBuzz is off")

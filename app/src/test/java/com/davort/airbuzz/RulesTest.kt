@@ -50,9 +50,13 @@ class RulesTest {
         assertEquals(Outcome.Buzz, Rules.decideCall(mumCalls, paused, day, "SE"))
         assertEquals(Outcome.Skip("paused"), Rules.decideCall(Caller("Bob", null), paused, day, "SE"))
         assertEquals(Outcome.Skip("AirBuzz is off"), Rules.decideCall(mumCalls, anyway.copy(enabled = false), night, "SE"))
-        // Ring anyway works in every call mode, even for someone the mode alone wouldn't let ring.
-        val chosenElsewhere = anyway.copy(people = emptyList(), callMode = CallMode.CONTACTS)
-        assertEquals(Outcome.Buzz, Rules.decideCall(mumCalls, chosenElsewhere, night, "SE"))
+        // Ring anyway never lets in someone the call mode doesn't, by day or in quiet times.
+        val notChosen = anyway.copy(people = listOf(bob))
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideCall(mumCalls, notChosen, day, "SE"))
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideCall(mumCalls, notChosen, night, "SE"))
+        val contacts = anyway.copy(people = emptyList(), callMode = CallMode.CONTACTS)
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideCall(mumCalls, contacts, night, "SE"))
+        assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Mum", "+46 70 123 45 67"), contacts, night, "SE"))
         assertEquals(Outcome.Skip("not chosen"), Rules.decideCall(mumCalls, anyway.copy(people = emptyList(), ringAnyway = false), day, "SE"))
     }
 

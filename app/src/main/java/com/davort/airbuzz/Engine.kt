@@ -264,7 +264,8 @@ class Engine(private val app: Context) {
         val who = caller.name ?: caller.number ?: "Unknown caller"
         val o = Rules.decideCall(caller, settings, moment, region)
         note("Call from $appLabel (${if (caller.number != null) "number" else if (caller.name != null) "name only" else "no caller ID"}" +
-            "${posted(moment, postedAt)}): ${outcome(o)}")
+            "${posted(moment, postedAt)}): ${outcome(o)}" +
+            (if (o == Outcome.Buzz) Rules.quietReason(settings, moment)?.let { " (rings anyway: $it)" } ?: "" else ""))
         when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
             else -> {
