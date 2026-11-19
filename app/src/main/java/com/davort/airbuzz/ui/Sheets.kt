@@ -442,7 +442,7 @@ const val UNDO_MS = 5000
  * row folds away. Each removal keeps its own five seconds, however many people are removed meanwhile.
  */
 @Composable
-fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
+fun PeopleRows(people: List<Person>, topLine: Boolean = true, onChange: (List<Person>) -> Unit) {
     val a = LocalAirColors.current
     // Removed people still showing Undo. They keep their place from the last order shown, so one folding away
     // doesn't move another; people added since come last, as they do in [people].
@@ -461,7 +461,8 @@ fun PeopleRows(people: List<Person>, onChange: (List<Person>) -> Unit) {
         key(p) {
             val gone = isGone(p)
             val prev = shown.getOrNull(i - 1)
-            val line = prev == null || !isGone(prev) || prev in folding
+            // Under a list heading the first row has no hairline, as in "Called recently"; under Add people it has one.
+            val line = if (prev == null) topLine else !isGone(prev) || prev in folding
             AnimatedContent(gone, label = "remove", transitionSpec = {
                 // The swiped row already looks like the Undo row's tint and bin, so it stays underneath while the name and Undo fade in.
                 if (targetState && p in swiped) fadeIn(tween(160, easing = Motion.Out)) togetherWith ExitTransition.KeepUntilTransitionsFinished
@@ -676,7 +677,7 @@ fun QuietSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     var editing by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
     val pick = rememberContactPicker(engine, ringAnyway = true)
     Sheet("Stay quiet", onClose) {
-        ScrollUnderFade { Column { QuietBody(s, { change -> engine.store.update(change) }, pick) { editing = it } } }
+        ScrollUnderFade { QuietBody(s, { change -> engine.store.update(change) }, pick) { editing = it } }
     }
     editing?.let { start ->
         val minutes = if (start) s.quietStart else s.quietEnd
@@ -721,10 +722,16 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             TwoLine("Let some people ring anyway", Modifier.weight(1f)) { Label(if (s.ringAnyway) "Through quiet times and pauses" else "Off") }
             AirSwitch(s.ringAnyway, { on -> update { it.copy(ringAnyway = on) } })
         }
+        if (s.ringAnyway) Text(when (s.callMode) {
+            CallMode.CHOSEN -> "Your chosen callers ring outside quiet times. In quiet times and pauses, only people you add here ring."
+            CallMode.CONTACTS -> "Your contacts ring outside quiet times. In quiet times and pauses, only people you add here ring."
+            CallMode.ANYONE -> "Every caller rings outside quiet times. Only people you add here ring in quiet times and pauses too."
+        }, style = Type.small.copy(lineBreak = LineBreak.Heading), color = a.muted)
         if (s.ringAnyway && s.callMode != CallMode.CHOSEN) {
             TextAction("Add people", pick)
             PeopleRows(s.ringAnywayPeople) { list -> update { it.copy(ringAnywayPeople = list) } }
         }
+        if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)
     }
     // In Chosen, ring anyway picks from the chosen callers, so everyone added can ring (Davor, 18 Nov). Someone else
     // picked from contacts becomes a chosen caller too. Anyone on the list who isn't chosen, from before or from
@@ -733,7 +740,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
         if (ringingAnyway(s).isNotEmpty()) Column {
             Label("Rings anyway")
             Gap(4)
-            PeopleRows(ringingAnyway(s)) { list -> update { it.copy(ringAnywayPeople = list + it.ringAnywayPeople.filter { p -> !isChosen(it, p) }) } }
+            PeopleRows(ringingAnyway(s), topLine = false) { list -> update { it.copy(ringAnywayPeople = list + it.ringAnywayPeople.filter { p -> !isChosen(it, p) }) } }
         }
         val rest = s.people.filter { p -> ringingAnyway(s).none { it == p || (p.number != null && it.number == p.number) } }
         val waiting = s.ringAnywayPeople.filter { !isChosen(s, it) }
@@ -764,7 +771,6 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             Text("They join Who can ring too.", style = Type.small, color = a.muted)
         }
     }
-    if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)
 }
 
 fun clock(minutes: Int) = String.format(Locale.ROOT, "%02d:%02d", minutes / 60, minutes % 60)
