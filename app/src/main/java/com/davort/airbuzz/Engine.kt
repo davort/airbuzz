@@ -512,6 +512,12 @@ class Engine(private val app: Context) {
 
     /** The Air answers again after a silent spell, so messages waiting out that spell try now rather than at their timer. */
     private fun onHeardAgain() {
+        // Home stops saying "not answering" now, not at the next buzz: on 19 Nov the Air answered at 12:34 with no
+        // message left to send, and Home kept the warning. The missed-alert notification stays.
+        if (bandState.value.notAnswering) {
+            bandState.value = bandState.value.copy(lastError = null, notAnswering = false)
+            if (problem?.cause == Cause.SILENT) clearProblem()
+        }
         if (waiting.any { it.alertKey != null }) retryMessages()
     }
 
