@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -688,11 +689,17 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
             if (sources.isEmpty()) Text("Nothing was ignored $word.", style = Type.small, color = a.muted)
             else Group(sources.map { (src, list) ->
                 @Composable {
-                    GroupRow(sheetFor(list.first())?.let { kind -> { open(kind) } }, vertical = 10.dp) {
+                    // Only a row with a setting behind it can be tapped; it says where it leads and has the chevron
+                    // (#31). A row such as "cleared by WhatsApp first" has nothing to change, so it shows neither.
+                    val kind = sheetFor(list.first())
+                    GroupRow(kind?.let { { open(it) } }, vertical = 10.dp) {
                         // A long reason, such as "cleared by WhatsApp first", takes a second line rather than being cut.
-                        TwoLine(src.first, Modifier.weight(1f)) { Label(src.second, wrap = true) }
+                        TwoLine(src.first, Modifier.weight(1f)) {
+                            Label(src.second, wrap = true)
+                            kind?.let { Text("Change in ${sheetName(it)}", style = Type.smallMedium, color = a.accent) }
+                        }
                         Text("${list.size}", style = Type.bodyMedium.copy(fontFeatureSettings = "tnum"), color = a.ink)
-                        GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
+                        if (kind != null) GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted) else Spacer(Modifier.width(18.dp))
                     }
                 }
             })
@@ -715,6 +722,15 @@ private fun sheetFor(e: Entry): SheetKind? = when (e.reason) {
     "quiet hours", "phone in use", "Do Not Disturb" -> SheetKind.QUIET
     "paused" -> SheetKind.PAUSE
     else -> null
+}
+
+/** A sheet as an Activity row names it, the same words as its title. */
+private fun sheetName(kind: SheetKind) = when (kind) {
+    SheetKind.PEOPLE -> "Who can ring"
+    SheetKind.APPS -> "Apps that buzz"
+    SheetKind.QUIET -> "Stay quiet"
+    SheetKind.PAUSE -> "Pause"
+    SheetKind.PATTERN -> "Pattern"
 }
 
 @Composable
