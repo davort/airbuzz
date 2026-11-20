@@ -131,6 +131,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
          */
         const val DEAF_MS = 20 * 60_000L
         const val DEAF_CHECK_MS = 60_000L
+        /** [onHeard] is called at most this often while the Air keeps sending, so Home doesn't redraw for every packet. */
+        const val HEARD_EVERY_MS = 60_000L
         /** While Google Health syncs, [SyncWatch] is checked this often, because a sync ends with no packet to say so. */
         const val SYNC_CHECK_MS = 2_000L
     }
@@ -225,6 +227,16 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Called on the main thread when the Air sends again after answering nothing. */
     var onHeardAgain: () -> Unit = {}
 
+    /** Called on the main thread when the Air sends anything, at most once per [HEARD_EVERY_MS], and at once after [onDeaf]. */
+    var onHeard: () -> Unit = {}
+
+    /**
+     * Called on the main thread once the open link has heard nothing from the Air for [DEAF_MS] since its last packet or
+     * since the link came up, whichever is later. Subscribing again doesn't restart that count. Called again only after
+     * the Air has been heard or the link has closed.
+     */
+    var onDeaf: () -> Unit = {}
+
     private val syncWatch = SyncWatch()
     private val syncCheck = object : Runnable {
         override fun run() {
@@ -233,11 +245,19 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         }
     }
     private var lastRxAt = 0L
+    /** Elapsed realtime of the Air's last packet; unlike [lastRxAt], subscribing again doesn't reset it. */
+    private var heardAt = 0L
+    private var heardReportedAt = 0L
+    private var deafReported = false
     private val deafCheck = object : Runnable {
         override fun run() {
             val g = gatt
             if (!linkUp || warming || g == null) return
             val now = SystemClock.elapsedRealtime()
+            if (!deafReported && now - maxOf(heardAt, linkReadyAt) >= DEAF_MS) {
+                deafReported = true
+                onDeaf()
+            }
             val quietFor = now - maxOf(lastRxAt, linkReadyAt)
             if (!busy && quietFor >= DEAF_MS) {
                 // The signal strength says whether the radio link is still alive while nothing arrives.
@@ -485,6 +505,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
         lastRxAt = now
+        heardAt = now
+        if (deafReported || now - heardReportedAt >= HEARD_EVERY_MS) {
+            deafReported = false
+            heardReportedAt = now
+            onHeard()
+        }
         if (rxSource != null) { sessionRx++; heardBand = true } else {
             traffic.record(now, packet.size)?.let(log)
             if (syncWatch.record(now, packet.size)) {
@@ -860,6 +886,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         disposeSession()
         val g = gatt
         gatt = null
+        if (linkUp) onLink(false)
+        deafReported = false
         linkUp = false
         warming = false
         txCharacteristic = null

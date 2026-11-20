@@ -131,6 +131,17 @@ data class BandState(
      * AirBuzz is off or the link is closed.
      */
     val healthSyncing: Boolean = false,
+    /**
+     * The listen-only open link to the Air is connected and subscribed right now. It drops and comes back often, usually
+     * within minutes, and on 19 Nov it stayed up through silent spells, so on its own it doesn't mean the Air answers.
+     */
+    val linkOpen: Boolean = false,
+    /**
+     * Wall-clock time AirBuzz last heard anything from the Air, Google Health's traffic included, updated about once a
+     * minute while it sends. Null until it is first heard after AirBuzz starts. Google Health syncs about every 15 min
+     * in the day, and at night the Air still sends a few packets every 15 min.
+     */
+    val lastHeardAt: Long? = null,
 )
 
 /** A Test buzz in progress or finished. */
@@ -157,8 +168,13 @@ class Engine(private val app: Context) {
     private val band = AirBand(app) { line -> note(line); testLine(line) }.also {
         it.onPhase = { testPhases() }
         it.onHealthSync = { syncing -> bandState.value = bandState.value.copy(healthSyncing = syncing) }
-        it.onLink = { up -> if (up) linkBack() else linkLost() }
+        it.onLink = { up ->
+            bandState.value = bandState.value.copy(linkOpen = up)
+            if (up) linkBack() else linkLost()
+        }
         it.onHeardAgain = { onHeardAgain() }
+        it.onHeard = { heard() }
+        it.onDeaf = { deaf() }
     }
 
     private val bandState = MutableStateFlow(BandState())
@@ -253,7 +269,7 @@ class Engine(private val app: Context) {
 
     fun setEnabled(on: Boolean) {
         store.update { it.copy(enabled = on) }
-        if (!on) { band.shutdown(); linkBack() }
+        if (!on) { band.shutdown(); linkBack(); clearSilentWarning() }
     }
 
     // Calls
@@ -442,6 +458,8 @@ class Engine(private val app: Context) {
                 lastError = if (!failed) null else if (retry) bandState.value.lastError else r.message,
                 notAnswering = if (!failed) false else if (retry) bandState.value.notAnswering else r.bandSilent,
             )
+            // A failed try that will be retried keeps the warning it found; any other result replaced it.
+            silentWarned = silentWarned && failed && retry
             if (retry) {
                 val others = group.size - 1 - ending.size
                 note("${r.message} Trying again in ${seconds(wait)}" +
@@ -519,6 +537,34 @@ class Engine(private val app: Context) {
             if (problem?.cause == Cause.SILENT) clearProblem()
         }
         if (waiting.any { it.alertKey != null }) retryMessages()
+    }
+
+    // The open link hearing nothing for 20 min (AirBand.DEAF_MS) means the Air isn't answering, as in the silent spells
+    // of 19 Nov, which showed nothing on Home until a message failed. Home says so without a notification, which waits
+    // for a missed alert, and stops as soon as the Air is heard (issue #32).
+
+    /** [BandState.lastError] was set by [deaf], not by a failed alert. */
+    private var silentWarned = false
+
+    private fun heard() {
+        bandState.value = bandState.value.copy(lastHeardAt = System.currentTimeMillis())
+        if (silentWarned) {
+            note("Home no longer shows the Fitbit Air not answering")
+            clearSilentWarning()
+        }
+    }
+
+    private fun deaf() {
+        if (!settings.enabled || bandState.value.lastError != null) return
+        note("Open link: heard nothing from the Fitbit Air for 20 min; Home shows it not answering")
+        silentWarned = true
+        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air isn't answering.", notAnswering = true)
+    }
+
+    private fun clearSilentWarning() {
+        if (!silentWarned) return
+        silentWarned = false
+        bandState.value = bandState.value.copy(lastError = null, notAnswering = false)
     }
 
     /** A message reached the Air, so other messages that already tried and are waiting count as buzzed with it. */
