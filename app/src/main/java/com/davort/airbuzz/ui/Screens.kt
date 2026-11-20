@@ -152,7 +152,7 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
         Group(listOf({
             GroupRow {
                 TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
-                    Label(lastReached(band.lastReachedAt, entries)?.let { "Reached ${timeOf(it)}" } ?: "Not reached yet")
+                    Label(lastReached(band.lastReachedAt, entries)?.let { "Last buzz ${timeOf(it)}" } ?: "No buzz yet")
                 }
                 Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
             }

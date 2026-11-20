@@ -487,14 +487,28 @@ fun storeDemo(context: android.content.Context) =
         java.io.File(context.filesDir, "store-demo").exists()
 
 /** The first thing stopping AirBuzz, in the order it must be fixed. */
-fun firstProblem(context: android.content.Context, lastError: String?, notAnswering: Boolean, reached: Long?): Problem? = when {
+fun firstProblem(context: android.content.Context, lastError: String?, notAnswering: Boolean, reached: Long?, heard: Long? = null): Problem? = when {
     storeDemo(context) -> null
     !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Fitbit Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
     !Setup.hasNearby(context) -> Problem("Can't use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
     Setup.bondedAirAddress(context) == null -> Problem("No Fitbit Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
     !Setup.hasListener(context) -> Problem("Can't see alerts", "Notification access is off", "Allow", Curve.BELL_OFF, Fix.LISTENER)
-    lastError != null -> Problem(if (notAnswering) "Fitbit Air not answering" else "Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
+    lastError != null && notAnswering -> Problem("Fitbit Air not answering", heard?.let { "Last heard ${timeOf(it)}" } ?: "Not heard yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
+    lastError != null -> Problem("Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
     else -> null
+}
+
+/**
+ * The shelf's line when nothing is wrong (issue #32). "Connected" means the open link is up, and "checked" is when the
+ * Air was last heard on it, Google Health's traffic included, about every 15 min. The engine raises "not answering"
+ * after 20 min of silence and "out of reach" after 10 min without the link, and those problems replace this line.
+ * The last buzz lives in Settings, where it doesn't read as the last contact.
+ */
+fun shelfLabel(enabled: Boolean, linkOpen: Boolean, heard: Long?, reached: Long?): String = when {
+    !Engine.OPEN_LINK || !enabled -> reached?.let { "Last buzz ${timeOf(it)}" } ?: "Not reached yet"
+    !linkOpen -> "Connecting…"
+    heard == null -> "Connected"
+    else -> "Connected · checked ${timeOf(heard)}"
 }
 
 /** The Air shelf as Home shows it, at the bottom of a full-screen box. */
@@ -506,10 +520,12 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     val tick = rememberResumeTick()
     val now = rememberNow()
     val reached = lastReached(band.lastReachedAt, entries)
-    val problem = remember(tick, band.lastError, band.notAnswering, reached) { firstProblem(context, band.lastError, band.notAnswering, reached) }
+    val problem = remember(tick, band.lastError, band.notAnswering, reached, band.lastHeardAt) {
+        firstProblem(context, band.lastError, band.notAnswering, reached, band.lastHeardAt)
+    }
     val fixer = rememberFixer(go) {}
     val paused = s.enabled && s.pausedUntil > now
-    val live = s.enabled && !paused && reached != null
+    val live = s.enabled && !paused && if (Engine.OPEN_LINK) band.linkOpen else reached != null
     // Once the problem has cost an alert, the detail says how many (issue #3); the day joins the time after midnight.
     val missed = band.problemSince?.takeIf { band.missed > 0 }?.let { since ->
         val day = if (since < dayStart(now = now)) java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(Date(since)) + " " else ""
@@ -519,7 +535,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
         problem.takeIf { s.enabled }, live,
         // Google Health's sync is information, not a problem (decision 33), so any problem wins over it.
         band.healthSyncing && live,
-        if (reached == null) "Not reached yet" else if (live) "Connected · reached ${timeOf(reached)}" else "Reached ${timeOf(reached)}",
+        shelfLabel(s.enabled, band.linkOpen, band.lastHeardAt, reached),
         missed,
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
         onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
@@ -528,7 +544,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
 
 /**
  * The card floating at the bottom of Home (decision 33): it opens Settings, and carries the one problem when something
- * breaks, at the same height. The dot is green only while AirBuzz is on and has reached the Air. Light mode casts a
+ * breaks, at the same height. The dot is green only while AirBuzz is on and its link to the Air is up. Light mode casts a
  * neutral shadow; dark mode glows in the accent, or in warn for a problem. When a problem arrives, its icon and words
  * cross-fade in, the border turns warn, and the glow flares once; it never pulses (decision 40). While Google Health
  * syncs with the Air and nothing is wrong, a grey sync icon says buzzes may wait, with no warn colour and no fix.
