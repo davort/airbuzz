@@ -124,3 +124,5 @@ Releases: push a tag `v<versionName>`, such as `v0.7.0`. GitHub Actions (`.githu
 ## Licence
 
 Copyright © 2026 Misek AB. AirBuzz is free software under the GPL-3.0 (`LICENSE`) with additional terms under its section 7, in `NOTICE.md`: a work based on AirBuzz keeps the credit "Based on AirBuzz by Misek AB (airbuzz.me)", and a modified version uses its own name and icon. The name "AirBuzz", the icon and the Play listing in `store/play/` are not under the GPL. Code and assets from others keep their own copyright and licences, listed in `THIRD_PARTY_NOTICES.md`.
+
+The band layer follows Thore Koritzius's [fitbit-air](https://github.com/ThoreKoritzius/fitbit-air) library (MIT). Thanks, Thore.
