@@ -797,7 +797,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         if (bandSilent && silentSince == 0L) silentSince = SystemClock.elapsedRealtime()
         val end = {
             // A link the Air didn't answer on isn't kept: the next try, and the warm link, start a new connection.
-            if (keepLinkOpen && linkUp && gatt != null && !bandSilent) releaseSession() else { closeTransport(); scheduleWarm() }
+            // A command on a new connection keeps it as the open link, so say the link is up: on 23 Nov the warm link
+            // had reported it down just before, and Home showed "Connecting…" while the link was open.
+            if (keepLinkOpen && linkUp && gatt != null && !bandSilent) { releaseSession(); onLink(true) } else { closeTransport(); scheduleWarm() }
         }
         if (sessionStarted && gatt != null) {
             handOff { end(); done(result()) }
