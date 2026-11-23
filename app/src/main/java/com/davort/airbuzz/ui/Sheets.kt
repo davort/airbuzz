@@ -97,6 +97,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.height
@@ -614,8 +615,23 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
     }
 }
 
+/** A rounded search field with a magnifier and a muted hint while empty. */
 @Composable
-fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
+fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
+        .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        CurveIcon(Curve.SEARCH, 18.dp, a.muted)
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) Text(hint, style = Type.body, color = a.muted)
+            BasicTextField(query, onChange, Modifier.fillMaxWidth(), singleLine = true, textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent))
+        }
+    }
+}
+
+@Composable
+fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (String) -> Unit) {
     val context = LocalContext.current
     val a = LocalAirColors.current
     val apps by AppList.apps.collectAsStateWithLifecycle()
@@ -626,11 +642,7 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     // Chosen apps first, then the ones that notified most this week, then by name. Order is fixed while open.
     val ordered = remember(apps == null) { apps?.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { -(weekCounts[it.pkg] ?: 0) }, { it.label.lowercase() })) }
     Sheet("Apps that buzz", onClose) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text("Search apps", style = Type.body, color = a.muted)
-            BasicTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent))
-        }
+        SearchField(query, "Search apps") { query = it }
         // Lazy, so only the rows on screen are built and only their icons load.
         val shown = ordered.orEmpty().filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
         if (ordered == null) Label("Reading your apps…", Modifier.height(420.dp))
@@ -640,8 +652,19 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
                 LineRow(i == 0, onClick = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }) {
                     AppIcon(app.pkg, 36.dp)
                     val n = weekCounts[app.pkg] ?: 0
-                    TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
+                    // A chosen app whose chats can be told apart says which of them buzz, and offers its chat sheet (#33).
+                    val chats = app.pkg in CHAT_APPS && app.pkg in s.apps
+                    val sub = if (chats) chatsSummary(s.chats[app.pkg]) else if (n > 0) "$n this week" else null
+                    TwoLine(app.label, Modifier.weight(1f), sub?.let { { Label(it) } })
+                    if (chats) Pill("Chats", { openChats(app.pkg) }, filled = false, small = true)
                     Mark(app.pkg in s.apps, radio = false)
+                }
+            }
+            if (query.isBlank()) item(key = "notes") {
+                Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    RingersNote(s)
+                    Text("Pick chats in WhatsApp, Telegram and Discord. A\u00A0chat is a person, a group or a\u00A0channel.", style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
+                        modifier = Modifier.fillMaxWidth())
                 }
             }
         }

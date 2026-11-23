@@ -128,7 +128,7 @@ private val Screen.parent get() = when (this) {
     else -> Screen.HOME
 }
 
-enum class SheetKind { PEOPLE, APPS, PATTERN, QUIET, PAUSE }
+enum class SheetKind { PEOPLE, APPS, PATTERN, QUIET, PAUSE, CHATS }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -172,6 +172,10 @@ fun rememberNow(everyMs: Long = 30_000): Long {
 fun App(engine: Engine, settings: AirSettings) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     var sheet by rememberSaveable { mutableStateOf<SheetKind?>(null) }
+    // The app whose chats the chat sheet shows, and whether Apps that buzz opened it, so Done goes back there.
+    var chatPkg by rememberSaveable { mutableStateOf("") }
+    var chatsFromApps by rememberSaveable { mutableStateOf(false) }
+    val openChats: (String, Boolean) -> Unit = { pkg, fromApps -> chatPkg = pkg; chatsFromApps = fromApps; sheet = SheetKind.CHATS }
     var licence by rememberSaveable { mutableIntStateOf(0) }
     // Test buzz and the setup checklist each have more than one way in, so Back returns to the page that opened them,
     // such as Settings rather than Home (issue #10). Activity opens only from Home.
@@ -197,7 +201,7 @@ fun App(engine: Engine, settings: AirSettings) {
             AnimatedContent(if (inSheet) Screen.HOME else screen, label = "page", transitionSpec = { graphPageChange(targetState.depth > initialState.depth) }) { shown ->
                 CompositionLocalProvider(LocalPageShare provides PageShare(this@SharedTransitionLayout, this, screen == Screen.ACTIVITY)) {
                     when (shown) {
-                        Screen.ACTIVITY -> ActivityScreen(engine, open, back)
+                        Screen.ACTIVITY -> ActivityScreen(engine, open, { openChats(it, false) }, back)
                         else -> Home(engine, settings, sheet, go, open)
                     }
                 }
@@ -229,10 +233,11 @@ fun App(engine: Engine, settings: AirSettings) {
         val close = { sheet = null }
         when (lastSheet[0]) {
             SheetKind.PEOPLE -> PeopleSheet(engine, settings, close) { sheet = SheetKind.QUIET }
-            SheetKind.APPS -> AppsSheet(engine, settings, close)
+            SheetKind.APPS -> AppsSheet(engine, settings, close) { openChats(it, true) }
             SheetKind.PATTERN -> PatternSheet(engine, settings, close)
             SheetKind.QUIET -> QuietSheet(engine, settings, close)
             SheetKind.PAUSE -> PauseSheet(engine, settings, close)
+            SheetKind.CHATS -> ChatsSheet(engine, settings, chatPkg) { sheet = if (chatsFromApps) SheetKind.APPS else null }
             null -> {}
         }
     }
@@ -376,8 +381,12 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 CallMode.ANYONE -> listOf("anyone")
             }
             val one = s.callMode == CallMode.ANYONE || (s.callMode == CallMode.CHOSEN && s.people.size <= 1)
-            val names = remember(s.apps) { s.apps.map { appLabel(context, it) }.sorted() }
+            // An app limited to some chats reads "3 WhatsApp chats" (#33).
+            val names = remember(s.apps, s.chats) {
+                s.apps.map { appLabel(context, it) to s.chats[it] }.sortedBy { it.first }.map { (label, chats) -> appInSentence(label, chats) }
+            }
             val apps = nameLadder(names, "no apps yet", "app", "apps")
+            val oneSender = s.apps.size == 1 && s.chats[s.apps.first()].let { it == null || it.size == 1 }
             Group(listOf(
                 { RuleItem("Calls", "Rings until answered") {
                     Sentence(listOf(
@@ -390,7 +399,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                     Sentence(listOf(
                         Part.Words("When"),
                         Part.Blank("Apps that buzz", apps[0], open = sheet == SheetKind.APPS, shorter = apps.drop(1)) { open(SheetKind.APPS) },
-                        Part.Words(if (names.size == 1) "messages, buzz" else "message, buzz"),
+                        Part.Words(if (oneSender) "messages, buzz" else "message, buzz"),
                         Part.Blank("Buzzes per message", tapsWord(s.messageTaps), after = ".", open = sheet == SheetKind.PATTERN) { open(SheetKind.PATTERN) },
                     ))
                 } },
@@ -657,6 +666,8 @@ fun describe(e: Entry): Pair<String, String> {
 fun reasonLabel(e: Entry): String = when (e.reason) {
     null -> if (e.result == com.davort.airbuzz.data.Result.MERGED) "Within 15 s" else "Ignored"
     "not chosen" -> "Not chosen"
+    "chat not chosen" -> "Chat not chosen"
+    "silent on the phone" -> "Silent on the phone"
     "quiet hours" -> "At night"
     "phone in use" -> "Phone in use"
     "paused" -> "Paused"

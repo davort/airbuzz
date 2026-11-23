@@ -610,7 +610,7 @@ private val dayFormat = SimpleDateFormat("EEE d MMM", Locale.getDefault())
 
 /** One day at a time (decision 32), totals in the top bar when they fit (decision 31), ignored alerts by source. */
 @Composable
-fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit) {
+fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String) -> Unit, onBack: () -> Unit) {
     val a = LocalAirColors.current
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val now = rememberNow()
@@ -691,12 +691,13 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
                 @Composable {
                     // Only a row with a setting behind it can be tapped; it says where it leads and has the chevron
                     // (#31). A row such as "cleared by WhatsApp first" has nothing to change, so it shows neither.
-                    val kind = sheetFor(list.first())
-                    GroupRow(kind?.let { { open(it) } }, vertical = 10.dp) {
+                    val e = list.first()
+                    val kind = sheetFor(e)
+                    GroupRow(kind?.let { { if (it == SheetKind.CHATS) openChats(e.pkg) else open(it) } }, vertical = 10.dp) {
                         // A long reason, such as "cleared by WhatsApp first", takes a second line rather than being cut.
                         TwoLine(src.first, Modifier.weight(1f)) {
                             Label(src.second, wrap = true)
-                            kind?.let { Text("Change in ${sheetName(it)}", style = Type.smallMedium, color = a.accent) }
+                            kind?.let { Text("Change in ${if (it == SheetKind.CHATS) "${e.appLabel} chats" else sheetName(it)}", style = Type.smallMedium, color = a.accent) }
                         }
                         Text("${list.size}", style = Type.bodyMedium.copy(fontFeatureSettings = "tnum"), color = a.ink)
                         if (kind != null) GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted) else Spacer(Modifier.width(18.dp))
@@ -714,11 +715,15 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, onBack: () -> Unit
 
 /** Who or what an ignored alert came from, and why, as (name, reason). */
 private fun source(e: Entry): Pair<String, String> =
-    if (e.kind == Kind.CALL) (e.who ?: "Unknown caller") to "Call · ${reasonLabel(e)}" else e.appLabel to reasonLabel(e)
+    if (e.kind == Kind.CALL) (e.who ?: "Unknown caller") to "Call · ${reasonLabel(e)}"
+    // A chat that wasn't ticked is its own row, as "WhatsApp · Design team", so a tap opens that app’s chats.
+    else if (e.reason == "chat not chosen" && e.who != null) "${e.appLabel} · ${e.who}" to reasonLabel(e)
+    else e.appLabel to reasonLabel(e)
 
 /** The sheet whose choice decided an ignored alert, so one tap can change it. */
 private fun sheetFor(e: Entry): SheetKind? = when (e.reason) {
     "not chosen" -> if (e.kind == Kind.CALL) SheetKind.PEOPLE else SheetKind.APPS
+    "chat not chosen" -> SheetKind.CHATS
     "quiet hours", "phone in use", "Do Not Disturb" -> SheetKind.QUIET
     "paused" -> SheetKind.PAUSE
     else -> null
@@ -731,6 +736,7 @@ private fun sheetName(kind: SheetKind) = when (kind) {
     SheetKind.QUIET -> "Stay quiet"
     SheetKind.PAUSE -> "Pause"
     SheetKind.PATTERN -> "Pattern"
+    SheetKind.CHATS -> "Chats"
 }
 
 @Composable

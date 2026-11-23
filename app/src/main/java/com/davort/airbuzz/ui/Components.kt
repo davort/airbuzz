@@ -132,6 +132,10 @@ enum class Curve(val d: String) {
     /** A phone with waves, for "Anyone". */
     CALLING("M14 2.5a8 8 0 0 1 7.5 7.5M14 6a4.5 4.5 0 0 1 4 4M21 16.5v3a2 2 0 0 1-2.2 2A18 18 0 0 1 2.5 5.2 2 2 0 0 1 4.5 3h3a2 2 0 0 1 2 1.7c.13.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.1L8.5 10.9a15 15 0 0 0 4.6 4.6l1.3-1.3a2 2 0 0 1 2.1-.45c.9.34 1.84.57 2.8.7a2 2 0 0 1 1.7 2.05z"),
     MOON("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"),
+    /** A magnifier, for search fields. */
+    SEARCH("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14M20 20l-4.35-4.35"),
+    /** One person, for listing contacts. */
+    PERSON("M19 21v-1.5a4.5 4.5 0 0 0-4.5-4.5h-5A4.5 4.5 0 0 0 5 19.5V21M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8"),
     BIN("M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"),
 }
 
@@ -456,10 +460,10 @@ fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fille
 
 /** An accent text action with a leading glyph, such as "+ Add people", 56 dp tall so it is an easy target. */
 @Composable
-fun TextAction(text: String, onClick: () -> Unit, glyph: Glyph = Glyph.PLUS) {
+fun TextAction(text: String, onClick: () -> Unit, glyph: Glyph = Glyph.PLUS, curve: Curve? = null) {
     val a = LocalAirColors.current
     Row(Modifier.fillMaxWidth().height(56.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-        GlyphIcon(glyph, 22.dp, a.accent)
+        if (curve != null) CurveIcon(curve, 22.dp, a.accent) else GlyphIcon(glyph, 22.dp, a.accent)
         Spacer(Modifier.width(12.dp))
         Text(text, style = Type.bodyMedium, color = a.accent)
     }
