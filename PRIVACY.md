@@ -13,6 +13,8 @@ Everything AirBuzz keeps stays on your phone, in storage only AirBuzz can read. 
 - **The people you choose.** You pick people with Android's contact picker. AirBuzz keeps only their names and phone numbers. It cannot read the rest of your contacts.
 - **Callers you hide from "Called recently"**: their number, or their name when there is none, so they stay hidden.
 - **Your settings**, such as the apps you choose, quiet times, the vibration strength and the look of the app.
+- **Chats.** For apps that name their chats (such as WhatsApp, Telegram and Discord), AirBuzz keeps the name of each chat, person or group that sent you a notification, the app's ID for it and whether it is a group, so you can choose which chats buzz. It forgets a chat after 30 days without a message. The chats you choose are kept with your settings.
+- **Contacts, only if you allow it.** If you let AirBuzz read your contacts, it reads the names of your contacts who use WhatsApp, Telegram or Signal to show them in the list of chats. It doesn't copy or keep them; it reads them again each time you open the list.
 - **A step log** that helps find out why an alert didn't buzz. It records which apps posted notifications and when, what AirBuzz did, timings, whether Bluetooth is on, the strength of the Bluetooth signal to your Fitbit Air, and your phone's battery level. AirBuzz can't read the Fitbit Air's battery. It never contains message text, caller names or numbers. It keeps one week of steps, and never more than the last 1,000.
 
 ## What leaves your phone

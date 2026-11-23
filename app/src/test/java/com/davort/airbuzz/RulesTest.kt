@@ -1,6 +1,8 @@
 package com.davort.airbuzz
 
 import com.davort.airbuzz.rules.CallMode
+import com.davort.airbuzz.rules.Chat
+import com.davort.airbuzz.rules.MessageFrom
 import com.davort.airbuzz.rules.Caller
 import com.davort.airbuzz.rules.Moment
 import com.davort.airbuzz.rules.Outcome
@@ -69,14 +71,14 @@ class RulesTest {
 
     @Test fun pauseStopsMessagesAndChosenCallers() {
         val paused = on.copy(pausedUntil = Long.MAX_VALUE)
-        assertEquals(Outcome.Skip("paused"), Rules.decideMessage("com.whatsapp", paused, day, null))
+        assertEquals(Outcome.Skip("paused"), Rules.decideMessage("com.whatsapp", MessageFrom(), paused, day, null, "SE"))
         assertEquals(Outcome.Skip("paused"), Rules.decideCall(Caller("Mum", null), paused, day, "SE"))
     }
 
     @Test fun messagesMergeWithin15Seconds() {
-        assertEquals(Outcome.Merge, Rules.decideMessage("com.whatsapp", on, day, day.nowMs - 14_999))
-        assertEquals(Outcome.Buzz, Rules.decideMessage("com.whatsapp", on, day, day.nowMs - 15_000))
-        assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("com.instagram.android", on, day, null))
+        assertEquals(Outcome.Merge, Rules.decideMessage("com.whatsapp", MessageFrom(), on, day, day.nowMs - 14_999, "SE"))
+        assertEquals(Outcome.Buzz, Rules.decideMessage("com.whatsapp", MessageFrom(), on, day, day.nowMs - 15_000, "SE"))
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("com.instagram.android", MessageFrom(), on, day, null, "SE"))
     }
 
     @Test fun quietHoursCrossMidnight() {
@@ -85,5 +87,42 @@ class RulesTest {
         assertFalse(Rules.inWindow(7 * 60, 23 * 60, 7 * 60))
         assertFalse(Rules.inWindow(22 * 60 + 59, 23 * 60, 7 * 60))
         assertTrue(Rules.inWindow(13 * 60, 12 * 60, 14 * 60))
+    }
+
+    @Test fun onlyChosenChatsBuzzMatchedByIdAfterRename() {
+        val family = Chat("120@g.us", "Family", group = true)
+        val only = on.copy(chats = mapOf("com.whatsapp" to listOf(family)))
+        // Renamed group: same ID, new name, still chosen.
+        assertEquals(Outcome.Buzz, Rules.decideMessage("com.whatsapp", MessageFrom("120@g.us", "Family ❤️", group = true), only, day, null, "SE"))
+        assertEquals(Outcome.Skip("chat not chosen"), Rules.decideMessage("com.whatsapp", MessageFrom("999@g.us", "Family", group = true), only, day, null, "SE"))
+        // No chat ID (an app without conversations) can't match a chosen chat.
+        assertEquals(Outcome.Skip("chat not chosen"), Rules.decideMessage("com.whatsapp", MessageFrom(), only, day, null, "SE"))
+        // Another chosen app without a chat list still buzzes for everything.
+        assertEquals(Outcome.Buzz, Rules.decideMessage("org.telegram.messenger", MessageFrom("1"), only.copy(apps = only.apps + "org.telegram.messenger"), day, null, "SE"))
+    }
+
+    @Test fun typedChatMatchesByNameUntilPinned() {
+        val typed = on.copy(chats = mapOf("com.whatsapp" to listOf(Chat(null, "Family", group = true))))
+        val clean = Rules.cleanChatName("Family (3 messages)")
+        assertEquals("Family", clean)
+        assertEquals(Outcome.Buzz, Rules.decideMessage("com.whatsapp", MessageFrom("120@g.us", clean, group = true), typed, day, null, "SE"))
+        assertEquals("Friday (2024)", Rules.cleanChatName("Friday (2024)"))
+    }
+
+    @Test fun peopleWhoCanRingBuzzOnlyInDirectMessages() {
+        val mumDirect = MessageFrom("71@lid", "Mum", group = false, sender = Caller("Mum", null))
+        // Signal isn't chosen, but Mum writes directly.
+        assertEquals(Outcome.Buzz, Rules.decideMessage("org.thoughtcrime.securesms", mumDirect, on, day, null, "SE"))
+        // In a group, she doesn't count.
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("org.thoughtcrime.securesms", mumDirect.copy(chatId = "g1", group = true), on, day, null, "SE"))
+        // Nor in Anyone mode, where that would let every direct message through.
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("org.thoughtcrime.securesms", mumDirect, on.copy(callMode = CallMode.ANYONE), day, null, "SE"))
+        // Quiet times still apply.
+        assertEquals(Outcome.Skip("quiet hours"), Rules.decideMessage("org.thoughtcrime.securesms", mumDirect, on, night, null, "SE"))
+    }
+
+    @Test fun silentOnThePhoneDoesNotBuzz() {
+        assertEquals(Outcome.Skip("silent on the phone"), Rules.decideMessage("com.whatsapp", MessageFrom(silentOnPhone = true), on, day, null, "SE"))
+        assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("com.instagram.android", MessageFrom(silentOnPhone = true), on, day, null, "SE"))
     }
 }

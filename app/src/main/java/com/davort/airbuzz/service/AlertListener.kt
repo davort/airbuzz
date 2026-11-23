@@ -8,7 +8,11 @@ import android.os.Build
 import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationCompat
+import com.davort.airbuzz.data.ChatOption
+import com.davort.airbuzz.data.ChatSource
 import com.davort.airbuzz.engine
+import com.davort.airbuzz.rules.MessageFrom
 import com.davort.airbuzz.rules.Caller
 import com.davort.airbuzz.rules.Rules
 
@@ -44,13 +48,23 @@ class AlertListener : NotificationListenerService() {
         val seen = lastText.put(sbn.key, text)
         if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
         if (lastText.size > 500) lastText.clear()
-        engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), chatName(n), moment(), sbn.postTime)
+        val from = messageFrom(sbn)
+        engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), from.chatName ?: chatName(n), from, moment(), sbn.postTime)
     }
 
     override fun onListenerConnected() {
         engine.note("Notification listener connected")
         // Android answers null while the listener isn't bound; then a late buzz goes ahead as before.
         engine.isShowing = { key -> getActiveNotifications(arrayOf(key))?.isNotEmpty() ?: true }
+        // The chat sheet's "On your phone now": chats of an app with a notification showing (issue #33).
+        engine.chatsOnPhone = { pkg ->
+            (runCatching { activeNotifications }.getOrNull() ?: emptyArray())
+                .filter { it.packageName == pkg && isMessage(it.notification) }
+                .map { messageFrom(it) }
+                .filter { it.chatId != null && it.chatName != null }
+                .distinctBy { it.chatId }
+                .map { ChatOption(pkg, it.chatId, it.chatName!!, it.group, ChatSource.ON_PHONE_NOW) }
+        }
     }
 
     /**
@@ -104,6 +118,28 @@ class AlertListener : NotificationListenerService() {
         return n.category !in setOf(Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_PROGRESS, Notification.CATEGORY_SERVICE,
             Notification.CATEGORY_SYSTEM, Notification.CATEGORY_NAVIGATION, Notification.CATEGORY_STOPWATCH,
             Notification.CATEGORY_LOCATION_SHARING, Notification.CATEGORY_CALL, Notification.CATEGORY_MISSED_CALL)
+    }
+
+    /**
+     * Which chat a message came from (issue #33): the conversation shortcut ID, which survives renames, the chat's name
+     * without a waiting-message count, whether it is a group, the newest message's sender, and whether the phone shows
+     * it silently. Apps that don't post conversations give no chat ID.
+     */
+    private fun messageFrom(sbn: StatusBarNotification): MessageFrom {
+        val n = sbn.notification
+        val style = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) }.getOrNull()
+        val chatId = if (Build.VERSION.SDK_INT >= 30) n.shortcutId?.takeIf { style != null } else null
+        val group = style?.isGroupConversation == true
+        val title = n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val name = Rules.cleanChatName(style?.conversationTitle?.toString() ?: if (!group) title else null)
+        val person = style?.messages?.lastOrNull()?.person
+        val senderName = person?.name?.toString()?.takeIf { it.isNotBlank() }
+        val number = person?.uri?.takeIf { it.startsWith("tel:") }?.removePrefix("tel:")
+        val sender = if (senderName != null || number != null) Caller(senderName?.takeUnless(Rules::looksLikeNumber), number ?: senderName?.takeIf(Rules::looksLikeNumber)) else null
+        val ranking = Ranking()
+        val importance = if (currentRanking?.getRanking(sbn.key, ranking) == true) ranking.importance else null
+        val silent = importance != null && importance < android.app.NotificationManager.IMPORTANCE_DEFAULT
+        return MessageFrom(chatId, name, group, sender, silent)
     }
 
     /** The chat or sender, for the activity log: the conversation title in a group, otherwise the title. */

@@ -2,6 +2,7 @@ package com.davort.airbuzz.data
 
 import android.content.Context
 import com.davort.airbuzz.rules.CallMode
+import com.davort.airbuzz.rules.Chat
 import com.davort.airbuzz.rules.Person
 import com.davort.airbuzz.rules.Settings
 import com.davort.airbuzz.rules.ThemeMode
@@ -48,6 +49,22 @@ class SettingsStore(context: Context) {
         put("ringAnyway", s.ringAnyway)
         put("ringAnywayPeople", encodePeople(s.ringAnywayPeople))
         put("hiddenCallers", JSONArray(s.hiddenCallers.toList()))
+        put("chats", JSONObject().apply {
+            s.chats.forEach { (pkg, list) ->
+                put(pkg, JSONArray(list.map { JSONObject().put("id", it.id ?: JSONObject.NULL).put("name", it.name).put("group", it.group) }))
+            }
+        })
+        put("contactsNotNow", s.contactsNotNow)
+    }
+
+    private fun decodeChats(o: JSONObject?): Map<String, List<Chat>>? = o?.let {
+        o.keys().asSequence().associateWith { pkg ->
+            val a = o.getJSONArray(pkg)
+            (0 until a.length()).map { i ->
+                val c = a.getJSONObject(i)
+                Chat(if (c.isNull("id")) null else c.getString("id"), c.getString("name"), c.optBoolean("group"))
+            }
+        }
     }
 
     private fun encodePeople(people: List<Person>) =
@@ -86,6 +103,8 @@ class SettingsStore(context: Context) {
             ringAnyway = o.optBoolean("ringAnyway", d.ringAnyway),
             ringAnywayPeople = decodePeople(o.optJSONArray("ringAnywayPeople")) ?: d.ringAnywayPeople,
             hiddenCallers = o.optJSONArray("hiddenCallers")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: d.hiddenCallers,
+            chats = decodeChats(o.optJSONObject("chats")) ?: d.chats,
+            contactsNotNow = o.optBoolean("contactsNotNow", d.contactsNotNow),
         )
     }
 }
@@ -110,6 +129,8 @@ data class Entry(
     val rangMs: Long? = null,
     /** From the alert to the band's first tap. */
     val latencyMs: Long? = null,
+    /** The chat's ID, for a message from an app that tags conversations, so "Let <chat> buzz" can add it (#33). */
+    val chatId: String? = null,
 )
 
 /** A week of alerts, kept in a JSON file in the app's private storage. */
@@ -148,6 +169,7 @@ class ActivityLog(context: Context) {
                 put("w", e.who ?: JSONObject.NULL); put("n", e.number ?: JSONObject.NULL); put("r", e.result.name)
                 put("why", e.reason ?: JSONObject.NULL); put("c", e.count)
                 put("rang", e.rangMs ?: JSONObject.NULL); put("lat", e.latencyMs ?: JSONObject.NULL)
+                put("chat", e.chatId ?: JSONObject.NULL)
             })
         }
         runCatching { file.writeText(a.toString()) }
@@ -163,6 +185,7 @@ class ActivityLog(context: Context) {
                 result = Result.valueOf(o.getString("r")), reason = o.optStringOrNull("why"), count = o.optInt("c", 1),
                 rangMs = if (o.isNull("rang")) null else o.getLong("rang"),
                 latencyMs = if (o.isNull("lat")) null else o.getLong("lat"),
+                chatId = if (!o.has("chat") || o.isNull("chat")) null else o.getString("chat"),
             )
         }
     }.getOrDefault(emptyList()).let(::prune)

@@ -10,6 +10,26 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 /** A chosen caller: the name from the contact picker and its number in E.164 when it could be parsed. */
 data class Person(val name: String, val number: String?)
 
+/**
+ * A chat within an app: a person, a group or a channel (issue #33). [id] is the app's conversation shortcut ID, which
+ * survives renames. It is null for a chat typed by name or picked from contacts until it first messages, when the
+ * engine pins it to the ID.
+ */
+data class Chat(val id: String?, val name: String, val group: Boolean)
+
+/**
+ * Which chat a message notification came from. [chatId] is null when the app doesn't post conversations (email, a
+ * Telegram channel), and [sender] is who wrote the newest message, when the app says.
+ */
+data class MessageFrom(
+    val chatId: String? = null,
+    val chatName: String? = null,
+    val group: Boolean = false,
+    val sender: Caller? = null,
+    /** The phone shows it without sound or vibration, such as a chat muted in its app. */
+    val silentOnPhone: Boolean = false,
+)
+
 /** Everything the user sets. Defaults follow the brief's decisions: quiet by default, all three don't-buzz rules on. */
 data class Settings(
     val enabled: Boolean = false,
@@ -39,6 +59,10 @@ data class Settings(
     val ringAnywayPeople: List<Person> = emptyList(),
     /** Numbers, or names when there is no number, dismissed from "Called recently". */
     val hiddenCallers: Set<String> = emptySet(),
+    /** Chosen apps set to "Only these chats", with their chats (issue #33). An app missing here buzzes for all messages. */
+    val chats: Map<String, List<Chat>> = emptyMap(),
+    /** The person chose "Not now" on the card that asks to list contacts who use a messaging app. */
+    val contactsNotNow: Boolean = false,
 )
 
 /** Who is calling, as far as the call notification says. */
@@ -120,12 +144,38 @@ object Rules {
         return if (ringsAnyway(caller, s, region)) Outcome.Buzz else Outcome.Skip(quiet)
     }
 
+    /** A direct message, in an app that tags conversations, from someone Chosen mode lets ring. */
+    fun canRingDirect(from: MessageFrom, s: Settings, region: String): Boolean =
+        s.callMode == CallMode.CHOSEN && from.chatId != null && !from.group &&
+            from.sender?.let { sender -> s.people.any { matches(it, sender, region) } } == true
+
+    /** By ID once known; a typed or contact chat matches by name until it is pinned. */
+    fun chatMatches(chat: Chat, from: MessageFrom): Boolean =
+        if (chat.id != null) chat.id == from.chatId
+        else !from.chatName.isNullOrBlank() && from.chatName.trim().equals(chat.name.trim(), ignoreCase = true)
+
+    private val countSuffix = Regex("""\s*\(\d+ [^()]*\)$""")
+
+    /** A chat's name without a count the app adds while messages wait, as WhatsApp's "Family (3 messages)". */
+    fun cleanChatName(raw: String?): String? = raw?.replace(countSuffix, "")?.trim()?.takeIf { it.isNotEmpty() }
+
     fun ringsAnyway(caller: Caller, s: Settings, region: String): Boolean =
         s.ringAnyway && s.ringAnywayPeople.any { matches(it, caller, region) }
 
-    fun decideMessage(pkg: String, s: Settings, m: Moment, lastBuzzForApp: Long?): Outcome {
+    /**
+     * A chosen app buzzes for all its messages, or only for its chosen chats. Someone who can ring also buzzes when they
+     * message directly, from any app, even one not chosen; not in a group (Davor, 23 Nov). That counts only in Chosen
+     * mode: in Contacts or Anyone, it would make every direct message from anyone buzz.
+     */
+    fun decideMessage(pkg: String, from: MessageFrom, s: Settings, m: Moment, lastBuzzForApp: Long?, region: String): Outcome {
         if (!s.enabled) return Outcome.Skip("AirBuzz is off")
-        if (pkg !in s.apps) return Outcome.Skip("not chosen")
+        if (!canRingDirect(from, s, region)) {
+            if (pkg !in s.apps) return Outcome.Skip("not chosen")
+            val only = s.chats[pkg]
+            if (only != null && only.none { chatMatches(it, from) }) return Outcome.Skip("chat not chosen")
+        }
+        // What the phone itself shows silently doesn't buzz the wrist either (Davor, 23 Nov).
+        if (from.silentOnPhone) return Outcome.Skip("silent on the phone")
         quietReason(s, m)?.let { return Outcome.Skip(it) }
         if (lastBuzzForApp != null && m.nowMs - lastBuzzForApp < MERGE_MS) return Outcome.Merge
         return Outcome.Buzz

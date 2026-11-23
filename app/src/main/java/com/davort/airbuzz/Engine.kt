@@ -24,6 +24,11 @@ import com.davort.airbuzz.band.AirHaptics
 import com.davort.airbuzz.band.BandCommand
 import com.davort.airbuzz.band.BandResult
 import com.davort.airbuzz.data.ActivityLog
+import com.davort.airbuzz.data.ChatBook
+import com.davort.airbuzz.data.ChatOption
+import com.davort.airbuzz.data.ChatSource
+import com.davort.airbuzz.data.SeenChat
+import com.davort.airbuzz.rules.MessageFrom
 import com.davort.airbuzz.data.DebugLog
 import com.davort.airbuzz.data.Entry
 import com.davort.airbuzz.data.Kind
@@ -162,6 +167,10 @@ data class TestRun(
 class Engine(private val app: Context) {
     val store = SettingsStore(app)
     val log = ActivityLog(app)
+    /** Chats seen in notifications, for the chat sheet (issue #33). */
+    val chatBook = ChatBook(app)
+    /** The chats of [pkg] with a notification showing right now; set by the notification listener once it is bound. */
+    var chatsOnPhone: (String) -> List<ChatOption> = { emptyList() }
     /** AirBuzz's own step log, shared from Settings. */
     val debug = DebugLog(java.io.File(app.filesDir, "debug.log"))
     private val main = Handler(Looper.getMainLooper())
@@ -328,11 +337,15 @@ class Engine(private val app: Context) {
 
     // Messages
 
-    fun onMessage(key: String, pkg: String, appLabel: String, who: String?, moment: Moment, postedAt: Long) {
-        val o = Rules.decideMessage(pkg, settings, moment, lastBuzzByApp[pkg])
+    fun onMessage(key: String, pkg: String, appLabel: String, who: String?, from: MessageFrom, moment: Moment, postedAt: Long) {
+        if (from.chatId != null && from.chatName != null) {
+            chatBook.record(SeenChat(pkg, from.chatId, from.chatName, from.group, moment.nowMs))
+            pinTypedChat(pkg, from)
+        }
+        val o = Rules.decideMessage(pkg, from, settings, moment, lastBuzzByApp[pkg], region)
         note("Message from $appLabel${if (o is Outcome.Skip) "" else " (${posted(moment, postedAt).removePrefix(", ")})"}: ${outcome(o)}")
         when (o) {
-            is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.SKIPPED, o.reason))
+            is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.MESSAGE, pkg, appLabel, who, null, Result.SKIPPED, o.reason, chatId = from.chatId))
             Outcome.Merge -> {
                 val merged = log.updateLast({ it.pkg == pkg && it.kind == Kind.MESSAGE && it.result == Result.BUZZED }) {
                     it.copy(count = it.count + 1)
@@ -358,6 +371,37 @@ class Engine(private val app: Context) {
                 pump()
             }
         }
+    }
+
+    /**
+     * A chosen chat that was typed or picked from contacts has no ID until it messages; on its first message it takes
+     * the chat's ID, so a later rename keeps it chosen (issue #33).
+     */
+    private fun pinTypedChat(pkg: String, from: MessageFrom) {
+        val list = settings.chats[pkg] ?: return
+        if (list.any { it.id == from.chatId }) return
+        val i = list.indexOfFirst { it.id == null && Rules.chatMatches(it, from) }
+        if (i < 0) return
+        note("A chosen $pkg chat now matches by its ID")
+        store.update { s ->
+            val chats = s.chats[pkg] ?: return@update s
+            s.copy(chats = s.chats + (pkg to chats.map { if (it.id == null && Rules.chatMatches(it, from)) it.copy(id = from.chatId, group = from.group) else it }))
+        }
+    }
+
+    /**
+     * What the chat sheet offers for [pkg], without repeats, in its order: chats showing now, contacts (people only),
+     * chats seen earlier, then chosen chats still waiting for their first message.
+     */
+    fun chatOptions(pkg: String): List<ChatOption> {
+        val now = chatsOnPhone(pkg)
+        val seen = chatBook.seen.value.filter { it.pkg == pkg }.sortedByDescending { it.lastSeen }
+            .map { ChatOption(pkg, it.id, it.name, it.group, ChatSource.SEEN) }
+        val typed = settings.chats[pkg].orEmpty().filter { it.id == null }.map { ChatOption(pkg, null, it.name, it.group, ChatSource.TYPED) }
+        val out = mutableListOf<ChatOption>()
+        fun known(o: ChatOption) = out.any { (o.id != null && it.id == o.id) || it.name.equals(o.name, ignoreCase = true) && it.group == o.group }
+        (now + chatBook.contacts(pkg) + seen + typed).forEach { if (!known(it)) out += it }
+        return out
     }
 
     // Test buzz and Try
