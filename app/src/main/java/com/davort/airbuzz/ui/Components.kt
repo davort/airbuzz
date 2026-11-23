@@ -24,7 +24,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -434,19 +433,24 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
     }
 }
 
-/** Pill button: filled in ink, or outlined. Large is 56 dp, small 40 dp. */
+/**
+ * Pill button: the main action filled in ink, or a secondary one in accent text on an accent tint with no border, so it
+ * never reads as an outlined input such as a search field (Davor, 23 Nov). The tint is 16% of the accent in dark mode
+ * and 18% in light, where 10% vanished against a light card; 18% is also the most that keeps accent text at 4.5:1, so
+ * a press shows as a ripple rather than a darker fill. Large is 56 dp, small 40 dp.
+ */
 @Composable
 fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = true, small: Boolean = false, enabled: Boolean = true) {
     val a = LocalAirColors.current
     val shape = CircleShape
     Box(
         modifier.height(if (small) 40.dp else 56.dp).alpha(if (enabled) 1f else 0.38f).clip(shape)
-            .then(if (filled) Modifier.background(a.ink) else Modifier.border(BorderStroke(1.dp, a.outline), shape))
+            .background(if (filled) a.ink else if (a.dark) a.tint else a.tintPressed)
             .clickable(enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = if (small) 16.dp else 24.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = if (small) Type.smallMedium else Type.bodyMedium, color = if (filled) a.onInk else a.ink, maxLines = 1, softWrap = false)
+        Text(text, style = if (small) Type.smallMedium else Type.bodyMedium, color = if (filled) a.onInk else a.accent, maxLines = 1, softWrap = false)
     }
 }
 
