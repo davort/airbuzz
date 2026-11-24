@@ -49,6 +49,7 @@ class AlertListener : NotificationListenerService() {
         if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
         if (lastText.size > 500) lastText.clear()
         val from = messageFrom(sbn)
+        if (from.chatId != null) engine.chatBook.savePhoto(sbn.packageName, from.chatId, n.getLargeIcon())
         engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), from.chatName ?: chatName(n), from, moment(), sbn.postTime)
     }
 
