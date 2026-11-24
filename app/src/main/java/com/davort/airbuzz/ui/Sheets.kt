@@ -273,16 +273,18 @@ fun SheetLayer(visible: Boolean, onDismiss: () -> Unit, full: Boolean = false, c
 
 /** A picker's body: serif title (decision 30), the body, and one full-width button. [SheetLayer] draws the sheet. */
 @Composable
-fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction: () -> Unit = onClose, content: @Composable ColumnScope.() -> Unit) =
-    SheetBody(title, action, onAction, content)
+fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction: () -> Unit = onClose, actionShown: Boolean = true,
+          content: @Composable ColumnScope.() -> Unit) =
+    SheetBody(title, action, onAction, actionShown, content)
 
+/** A sheet hides its button while a search has the keyboard up, so the results get the room (Davor, 24 Nov). */
 @Composable
-fun SheetBody(title: String, action: String, onAction: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun SheetBody(title: String, action: String, onAction: () -> Unit, actionShown: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val a = LocalAirColors.current
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(title, style = Type.heading, color = a.heading)
         content()
-        Pill(action, onAction, Modifier.fillMaxWidth())
+        if (actionShown) Pill(action, onAction, Modifier.fillMaxWidth())
     }
 }
 
@@ -617,7 +619,7 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
 
 /** A rounded search field with a magnifier and a muted hint while empty. */
 @Composable
-fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
+fun SearchField(query: String, hint: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     val a = LocalAirColors.current
     Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
         .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -625,7 +627,7 @@ fun SearchField(query: String, hint: String, onChange: (String) -> Unit) {
         Spacer(Modifier.width(12.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) Text(hint, style = Type.body, color = a.muted)
-            BasicTextField(query, onChange, Modifier.fillMaxWidth(), singleLine = true, textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent))
+            BasicTextField(query, onChange, modifier.fillMaxWidth(), singleLine = true, textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent))
         }
     }
 }
@@ -649,21 +651,30 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
         val list = rememberLazyListState()
         LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 420.dp).edgeFades(list, a.surface), list) {
             itemsIndexed(shown, key = { _, app -> app.pkg }) { i, app ->
-                LineRow(i == 0, onClick = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }) {
+                val toggle = { engine.store.update { st -> st.copy(apps = if (app.pkg in st.apps) st.apps - app.pkg else st.apps + app.pkg) } }
+                // A chosen app whose chats can be told apart opens its chats from the whole row, so a tap there never
+                // turns off an app with chats picked; only its checkbox does (Davor, 24 Nov). Other rows tick as before.
+                val chats = app.pkg in CHAT_APPS && app.pkg in s.apps
+                LineRow(i == 0, onClick = if (chats) ({ openChats(app.pkg) }) else toggle) {
                     AppIcon(app.pkg, 36.dp)
                     val n = weekCounts[app.pkg] ?: 0
-                    // A chosen app whose chats can be told apart says which of them buzz, and offers its chat sheet (#33).
-                    val chats = app.pkg in CHAT_APPS && app.pkg in s.apps
-                    val sub = if (chats) chatsSummary(s.chats[app.pkg]) else if (n > 0) "$n this week" else null
-                    TwoLine(app.label, Modifier.weight(1f), sub?.let { { Label(it) } })
-                    if (chats) Pill("Chats", { openChats(app.pkg) }, filled = false, small = true)
-                    Mark(app.pkg in s.apps, radio = false)
+                    if (chats) TwoLine(app.label, Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Label(chatsSummary(s.chats[app.pkg]), color = a.accent)
+                            Spacer(Modifier.width(2.dp))
+                            GlyphIcon(Glyph.CHEVRON, 12.dp, a.accent, 3f)
+                        }
+                    } else TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
+                    // 48 dp to tap, with the box itself in line with the other rows' boxes.
+                    if (chats) Box(Modifier.offset(x = 13.dp).size(48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Checkbox, onClickLabel = "Stop ${app.label} buzzing", onClick = toggle),
+                        contentAlignment = Alignment.Center) { Mark(true, radio = false) }
+                    else Mark(app.pkg in s.apps, radio = false)
                 }
             }
             if (query.isBlank()) item(key = "notes") {
                 Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     RingersNote(s)
-                    Text("Pick chats in WhatsApp, Telegram and Discord. A\u00A0chat is a person, a group or a\u00A0channel.", style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
+                    Text("Tap a ticked WhatsApp, Telegram or Discord to pick its chats. A\u00A0chat is a person, a group or a\u00A0channel.", style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
                         modifier = Modifier.fillMaxWidth())
                 }
             }

@@ -17,7 +17,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -110,6 +120,7 @@ fun RingersNote(s: Settings) {
  * order. Android lists no app's chats, so a new install starts nearly empty: the optional contacts card, typing a
  * name, and a note that more chats appear as they message fill the gap.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     val a = LocalAirColors.current
@@ -133,6 +144,15 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     // Switching to All messages and back within one visit keeps the ticks.
     var kept by remember { mutableStateOf<List<Chat>?>(null) }
     var query by remember { mutableStateOf("") }
+    // While the search has the keyboard up, the choice and the button make way for results (Davor, 24 Nov). Closing the
+    // keyboard ends the search's hold on the screen.
+    var searching by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
+    val ime = WindowInsets.isImeVisible
+    var hadIme by remember { mutableStateOf(false) }
+    LaunchedEffect(ime) { if (hadIme && !ime) focus.clearFocus(); hadIme = ime }
+    // Chats ticked when the sheet opened come first, as Your people does; a tick now doesn't move a row under the finger.
+    val pinned = remember(pkg) { s.chats[pkg].orEmpty() }
     var typing by remember { mutableStateOf(false) }
     var fromLink by remember { mutableStateOf(false) }
     val askContacts = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -156,14 +176,27 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
         setChats(if (isChosen(list, o)) list.filterNot { isChosen(listOf(it), o) } else list + Chat(o.id, o.name, o.group))
     }
 
-    Sheet("$app chats", onClose) {
-        Label(buildString {
-            append(when (chats) { 0 -> "No chats yet"; 1 -> "1 chat so far"; else -> "$chats chats so far" })
-            if (contacts > 0) append(" · $contacts contacts")
-        }, Modifier.padding(bottom = 4.dp).offset(y = (-10).dp))
-        Seg(listOf(false to "All messages", true to "Only these chats"), chosen != null) { only ->
-            if (only) setChats(kept ?: emptyList()) else { kept = chosen; setChats(null) }
+    val searchable = chosen != null && (contactsOk && contacts > 0 || options.size > 8)
+    Sheet("$app chats", onClose, actionShown = !searching) {
+        AnimatedVisibility(!searching, enter = fadeIn(tween(160)) + expandVertically(tween(220, easing = Motion.InOut)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(220, easing = Motion.InOut))) {
+            Column {
+                // Tucked under the title as its subtitle.
+                Label(buildString {
+                    append(when (chats) { 0 -> "No chats yet"; 1 -> "1 chat so far"; else -> "$chats chats so far" })
+                    if (contacts > 0) append(" · $contacts contacts")
+                }, Modifier.layout { m, c ->
+                    val p = m.measure(c)
+                    val up = 10.dp.roundToPx()
+                    layout(p.width, p.height - up) { p.place(0, -up) }
+                })
+                Gap(16)
+                Seg(listOf(false to "All messages", true to "Only these chats"), chosen != null) { only ->
+                    if (only) setChats(kept ?: emptyList()) else { kept = chosen; setChats(null) }
+                }
+            }
         }
+        if (searchable) SearchField(query, "Search chats", Modifier.onFocusChanged { searching = it.isFocused }) { query = it }
         ScrollUnderFade {
             if (chosen == null) {
                 Text("Every $app message buzzes, from every chat. To pick some, choose Only these\u00A0chats.",
@@ -171,21 +204,18 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                 return@ScrollUnderFade
             }
             Column {
-                if (contactsOk && contacts > 0 || options.size > 8) {
-                    SearchField(query, "Search chats") { query = it }
-                    Gap(16)
-                }
                 val shown = options.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+                    .sortedBy { if (isChosen(pinned, it)) 0 else 1 }
                 // Chats showing now and contacts get a heading; chats seen earlier and typed ones follow under "Earlier"
                 // only when a heading came before them, so a plain list stays plain.
                 val headed = shown.any { it.source == ChatSource.ON_PHONE_NOW || it.source == ChatSource.CONTACT }
                 var section: String? = null
                 var first = true
                 shown.forEach { o ->
-                    val title = when (o.source) {
+                    val title = if (isChosen(pinned, o)) "Your chats" else when (o.source) {
                         ChatSource.ON_PHONE_NOW -> "On your phone now"
                         ChatSource.CONTACT -> "Your contacts on $app"
-                        else -> if (headed) "Earlier" else null
+                        else -> if (headed) "Earlier" else if (shown.any { isChosen(pinned, it) }) "Other chats" else null
                     }
                     if (title != null && title != section) {
                         if (section != null || !first) Gap(16)
@@ -197,7 +227,15 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                     ChatRow(o, isChosen(chosen, o), week[o.id] ?: 0, first) { toggle(o) }
                     first = false
                 }
+                // A name that isn't listed yet can be added straight from the search, once no listed name starts with it.
+                val typed = query.trim()
+                if (typed.isNotEmpty() && shown.none { it.name.startsWith(typed, ignoreCase = true) }) TextAction("Add \u201C$typed\u201D as a chat", {
+                    setChats(chosen + Chat(null, typed, false))
+                    query = ""
+                    focus.clearFocus()
+                })
             }
+            if (query.isNotBlank()) return@ScrollUnderFade
             if (contactsCard) ContactsCard(app, onNotNow = { engine.store.update { it.copy(contactsNotNow = true) } }) {
                 fromLink = false
                 askContacts.launch(Manifest.permission.READ_CONTACTS)
