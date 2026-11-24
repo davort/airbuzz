@@ -130,6 +130,21 @@ private fun style(family: FontFamily, size: Int, line: Int, weight: Int = 400) =
     TextStyle(fontFamily = family, fontSize = size.sp, lineHeight = line.sp, fontWeight = FontWeight(weight), lineHeightStyle = Trim)
 
 /** The type scale from the design pass, in sp on a 360 dp phone. */
+/**
+ * The spacing scale for sheets and pages (#34). Parts inside a sheet add no outer padding of their own; the sheet's
+ * column places them, so every sheet spaces the same way.
+ * - [TIGHT] between controls: title, choice, search, list, and between the last note and the button.
+ * - [SECTION] between groups of content: a choice and what it shows, the content and the note under it.
+ * - [INLINE] inside one item, such as an icon and its sentence; a line and its hint use [HINT].
+ * Touch targets stay 48 dp; a gap is measured to the text, so a row's own touch room counts towards it.
+ */
+object Space {
+    const val HINT = 4
+    const val INLINE = 8
+    const val TIGHT = 16
+    const val SECTION = 24
+}
+
 object Type {
     val heading = style(Serif, 34, 40)
     val title = style(Sans, 24, 32, 500)

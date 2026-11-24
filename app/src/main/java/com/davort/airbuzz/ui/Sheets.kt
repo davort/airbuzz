@@ -281,7 +281,7 @@ fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction:
 @Composable
 fun SheetBody(title: String, action: String, onAction: () -> Unit, actionShown: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val a = LocalAirColors.current
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = Space.TIGHT.dp, bottom = Space.SECTION.dp), verticalArrangement = Arrangement.spacedBy(Space.TIGHT.dp)) {
         Text(title, style = Type.heading, color = a.heading)
         content()
         if (actionShown) Pill(action, onAction, Modifier.fillMaxWidth())
@@ -315,7 +315,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
             if (s.callMode == CallMode.CHOSEN) {
                 Column {
                     Label(if (s.people.size >= 5) "Your people · ${s.people.size}" else "Your people")
-                    Gap(4)
+                    Gap(Space.HINT)
                     // At the top, so it stays in reach however long the list grows.
                     TextAction("Add people", pick)
                     PeopleRows(s.people) { list -> engine.store.update { st ->
@@ -331,7 +331,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
                 val recent = recentCallers(entries, s, regionOf(context))
                 if (recent.isNotEmpty()) Column {
                     Label("Called recently")
-                    Gap(4)
+                    Gap(Space.HINT)
                     recent.forEachIndexed { i, p ->
                         LineRow(i == 0) {
                             Avatar(p.name)
@@ -362,7 +362,7 @@ fun recentCallers(entries: List<com.davort.airbuzz.data.Entry>, s: Settings, reg
 fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
     val scroll = rememberScrollState()
     Column(Modifier.weight(1f, fill = false).edgeFades(scroll, LocalAirColors.current.surface).verticalScroll(scroll),
-        verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
+        verticalArrangement = Arrangement.spacedBy(Space.SECTION.dp), content = content)
 }
 
 /** An icon in a soft circle beside one sentence that says what the chosen mode does. */
@@ -391,13 +391,13 @@ fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSe
         }
         // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes. The sheet
         // on Home shows the choice's icon above it; onboarding's step already has its own icon, so it shows none.
-        Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = if (icon) 28.dp else 24.dp, bottom = 8.dp)
+        Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = Space.SECTION.dp, bottom = (Space.SECTION - Space.TIGHT).dp)
             .animateContentSize(tween(220, easing = Motion.InOut)).semantics(mergeDescendants = true) {}) {
             if (icon) {
                 Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
                     CurveIcon(when (mode) { CallMode.CHOSEN -> Curve.PEOPLE; CallMode.CONTACTS -> Curve.CONTACTS; CallMode.ANYONE -> Curve.CALLING }, 24.dp, a.ink, 1.8f)
                 }
-                Gap(8)
+                Gap(Space.INLINE)
             }
             Text(buildAnnotatedString {
                 append(before)
@@ -673,7 +673,7 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
                 }
             }
             if (query.isBlank()) item(key = "notes") {
-                Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.padding(top = Space.TIGHT.dp), verticalArrangement = Arrangement.spacedBy(Space.TIGHT.dp)) {
                     RingersNote(s)
                     Text("Tap a ticked WhatsApp, Telegram or Discord to pick its chats. A\u00A0chat is a person, a group or a\u00A0channel.", style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
                         modifier = Modifier.fillMaxWidth())
@@ -774,14 +774,14 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
     if (s.ringAnyway && s.callMode == CallMode.CHOSEN) {
         if (ringingAnyway(s).isNotEmpty()) Column {
             Label("Rings anyway")
-            Gap(4)
+            Gap(Space.HINT)
             PeopleRows(ringingAnyway(s), topLine = false) { list -> update { it.copy(ringAnywayPeople = list + it.ringAnywayPeople.filter { p -> !isChosen(it, p) }) } }
         }
         val rest = s.people.filter { p -> ringingAnyway(s).none { it == p || (p.number != null && it.number == p.number) } }
         val waiting = s.ringAnywayPeople.filter { !isChosen(s, it) }
         if (waiting.isNotEmpty()) Column {
             Label("Can't ring yet · not in Who can ring")
-            Gap(4)
+            Gap(Space.HINT)
             waiting.forEachIndexed { i, p ->
                 LineRow(i == 0) {
                     Avatar(p.name)
@@ -794,7 +794,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             }
         }
         Column {
-            if (rest.isNotEmpty()) { Label("From Who can ring"); Gap(4) }
+            if (rest.isNotEmpty()) { Label("From Who can ring"); Gap(Space.HINT) }
             rest.forEachIndexed { i, p ->
                 LineRow(i == 0) {
                     Avatar(p.name)

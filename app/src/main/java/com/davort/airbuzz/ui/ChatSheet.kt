@@ -229,7 +229,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                     val up = 10.dp.roundToPx()
                     layout(p.width, p.height - up) { p.place(0, -up) }
                 })
-                Gap(16)
+                Gap(Space.TIGHT)
                 Seg(listOf(ChatTab.ALL to "All messages", ChatTab.PEOPLE to "People", ChatTab.GROUPS to "Groups"), tab) { next ->
                     if (next == tab) return@Seg
                     if (next == ChatTab.ALL) { kept = chosen; setChats(null) }
@@ -238,8 +238,8 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                     query = ""
                     typing = false
                 }
-                // With the sheet's 16 dp, 24 dp from the choice to what's under it, as in Who can ring.
-                Gap(8)
+                // With the sheet's own gap, a section gap from the choice to what's under it, as in Who can ring.
+                Gap(Space.SECTION - Space.TIGHT)
             }
         }
         if (searchable) SearchField(query, if (groups) "Search groups" else "Search people", Modifier.onFocusChanged { searching = it.isFocused }) { query = it }
@@ -261,8 +261,8 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                             else -> "Recent"
                         }
                         if (title != section) {
-                            if (section != null || !first) Gap(16)
-                            if (title != null) { Label(title); Gap(4) }
+                            if (section != null || !first) Gap(Space.TIGHT)
+                            if (title != null) { Label(title); Gap(Space.HINT) }
                             section = title
                             first = true
                         }
@@ -310,7 +310,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                 }
                 if (note) {
                     // The action rows end with 12 dp of touch room under their text.
-                    Gap(if (tab == ChatTab.ALL) 24 else 12)
+                    Gap(if (tab == ChatTab.ALL) Space.SECTION else Space.SECTION - 12)
                     RingersNote(s)
                 }
             }
@@ -326,7 +326,7 @@ private fun AllMessagesPanel(app: String, kept: Boolean) {
         Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
             CurveIcon(Curve.CHAT, 24.dp, a.ink, 1.8f)
         }
-        Gap(8)
+        Gap(Space.INLINE)
         Text(buildAnnotatedString {
             withStyle(SpanStyle(color = a.accent, fontWeight = FontWeight(500))) { append("Every $app message") }
             append(" will buzz your Fitbit\u00A0Air.")
