@@ -682,7 +682,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String
         if (!compact) Box(dayFade) { Totals(buzzed, ignored, 40, 44, 40, Alignment.Start) }
         Text("AirBuzz saw ${day.size} calls and messages $word. Ignored ones reached your phone, but your rules kept them off your wrist. Tap an app to let it buzz.",
             style = Type.small, color = a.muted, modifier = dayFade.padding(vertical = 8.dp))
-        Seg(listOf(0 to "All", 1 to "Buzzed", 2 to "Ignored"), filter) { filter = it }
+        Seg(listOf(0 to "All", 1 to "Buzzed", 2 to "Ignored"), filter, track = LocalAirColors.current.surface) { filter = it }
         Column(dayFade, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (filter == 2) {
             val sources = day.filter { it.fate == Fate.IGNORED }.groupBy { source(it) }.entries.sortedByDescending { it.value.size }

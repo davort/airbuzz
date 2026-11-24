@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
@@ -62,7 +63,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davort.airbuzz.Engine
@@ -113,10 +120,34 @@ fun RingersNote(s: Settings) {
     }
 }
 
+private enum class ChatTab { ALL, PEOPLE, GROUPS }
+
+/** "2 people · 1 group", for the ticked chats in a sheet's subtitle. */
+private fun tickCount(chats: List<Chat>): String {
+    val people = chats.count { !it.group }
+    val groups = chats.size - people
+    return listOfNotNull(
+        people.takeIf { it > 0 }?.let { if (it == 1) "1 person" else "$it people" },
+        groups.takeIf { it > 0 }?.let { if (it == 1) "1 group" else "$it groups" },
+    ).joinToString(" \u00B7 ")
+}
+
+/** When a chat last wrote, for its row: "Messaged 17:12", "Messaged yesterday" or "Messaged 12 Nov". */
+private fun messagedAt(ms: Long): String {
+    val day = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+    return "Messaged " + when {
+        ms >= day -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+        ms >= day - 86_400_000L -> "yesterday"
+        else -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(ms))
+    }
+}
+
 /**
- * One app's chats (#33): "All messages" or "Only these chats", then the chats AirBuzz can offer, in the engine's
- * order. Android lists no app's chats, so a new install starts nearly empty: the optional contacts card, typing a
- * name, and a note that more chats appear as they message fill the gap.
+ * One app's chats (#33): All messages, People or Groups (Davor, 24 Nov). People and Groups each list their chats
+ * with checkboxes, and the ticks of both add up; All messages lets every chat buzz and keeps the ticks for later.
+ * Android lists no app's chats, so a new install starts nearly empty: the optional contacts card, typing a name, and
+ * a card saying that more appear as they message fill the gap. Spacing follows Who can ring: 24 dp from the choice to
+ * what's under it and from the content to the note, 16 dp from the note to Done.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -129,10 +160,11 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     var contactsOk by remember { mutableStateOf(ChatBook.hasContacts(context)) }
     LaunchedEffect(resumed) { contactsOk = ChatBook.hasContacts(context) }
     // An app buzzes for all its chats until at least one is ticked (Davor, 24 Nov), so an empty list is never kept.
-    // Only these chats can still be shown with nothing ticked while the sheet is open, ready for the first tick.
     val chosen = s.chats[pkg]?.takeIf { it.isNotEmpty() }
     val ticked = chosen.orEmpty()
-    var only by remember(pkg) { mutableStateOf(chosen != null) }
+    var tab by remember(pkg) {
+        mutableStateOf(when { chosen == null -> ChatTab.ALL; chosen.all { it.group } -> ChatTab.GROUPS; else -> ChatTab.PEOPLE })
+    }
     val options = remember(pkg, seen, chosen, contactsOk) {
         val offered = engine.chatOptions(pkg)
         // A ticked chat that hasn't written for a month has left the chat book; it stays listed so it can be unticked.
@@ -153,7 +185,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     val ime = WindowInsets.isImeVisible
     var hadIme by remember { mutableStateOf(false) }
     LaunchedEffect(ime) { if (hadIme && !ime) focus.clearFocus(); hadIme = ime }
-    // Chats ticked when the sheet opened come first, as Your people does; a tick now doesn't move a row under the finger.
+    // Chats ticked when the sheet opened come first; a tick now doesn't move a row under the finger.
     val pinned = remember(pkg) { s.chats[pkg].orEmpty() }
     var typing by remember { mutableStateOf(false) }
     var fromLink by remember { mutableStateOf(false) }
@@ -167,117 +199,165 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                 context.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
         }
     }
-    val canList = pkg in ChatBook.CONTACT_ACCOUNTS && !contactsOk
+    val groups = tab == ChatTab.GROUPS
+    val canList = !groups && pkg in ChatBook.CONTACT_ACCOUNTS && !contactsOk
     val contactsCard = canList && !s.contactsNotNow
-    val contacts = options.count { it.source == ChatSource.CONTACT }
-    val chats = options.count { it.source == ChatSource.ON_PHONE_NOW || it.source == ChatSource.SEEN }
+    val inTab = options.filter { it.group == groups }
 
     fun setChats(list: List<Chat>?) = engine.store.update { st -> st.copy(chats = if (list.isNullOrEmpty()) st.chats - pkg else st.chats + (pkg to list)) }
     fun toggle(o: ChatOption) {
         val list = s.chats[pkg].orEmpty()
         setChats(if (isChosen(list, o)) list.filterNot { isChosen(listOf(it), o) } else list + Chat(o.id, o.name, o.group))
     }
+    fun add(name: String) {
+        val n = name.trim()
+        if (n.isNotEmpty() && ticked.none { it.name.equals(n, ignoreCase = true) && it.group == groups }) setChats(ticked + Chat(null, n, groups))
+    }
 
-    val searchable = only && (contactsOk && contacts > 0 || options.size > 8)
+    val searchable = tab != ChatTab.ALL && (inTab.count { it.source == ChatSource.CONTACT } > 0 || inTab.size > 8)
     Sheet("$app chats", onClose, actionShown = !searching) {
         AnimatedVisibility(!searching, enter = fadeIn(tween(160)) + expandVertically(tween(220, easing = Motion.InOut)),
             exit = fadeOut(tween(120)) + shrinkVertically(tween(220, easing = Motion.InOut))) {
             Column {
                 // Tucked under the title as its subtitle.
-                Label(buildString {
-                    append(when (chats) { 0 -> "No chats yet"; 1 -> "1 chat so far"; else -> "$chats chats so far" })
-                    if (contacts > 0) append(" · $contacts contacts")
+                Label(when {
+                    tab == ChatTab.ALL -> kept?.takeIf { it.isNotEmpty() }?.let { "${tickCount(it)} kept" } ?: "Every chat buzzes"
+                    ticked.isEmpty() -> "All chats buzz until you tick one"
+                    else -> tickCount(ticked) + if (ticked.size == 1) " buzzes" else " buzz"
                 }, Modifier.layout { m, c ->
                     val p = m.measure(c)
                     val up = 10.dp.roundToPx()
                     layout(p.width, p.height - up) { p.place(0, -up) }
                 })
                 Gap(16)
-                Seg(listOf(false to "All messages", true to "Only these chats"), only) { on ->
-                    only = on
-                    if (on) setChats(kept) else { kept = chosen; setChats(null) }
+                Seg(listOf(ChatTab.ALL to "All messages", ChatTab.PEOPLE to "People", ChatTab.GROUPS to "Groups"), tab) { next ->
+                    if (next == tab) return@Seg
+                    if (next == ChatTab.ALL) { kept = chosen; setChats(null) }
+                    else if (tab == ChatTab.ALL) setChats(kept)
+                    tab = next
+                    query = ""
+                    typing = false
                 }
+                // With the sheet's 16 dp, 24 dp from the choice to what's under it, as in Who can ring.
+                Gap(8)
             }
         }
-        if (searchable) SearchField(query, "Search chats", Modifier.onFocusChanged { searching = it.isFocused }) { query = it }
+        if (searchable) SearchField(query, if (groups) "Search groups" else "Search people", Modifier.onFocusChanged { searching = it.isFocused }) { query = it }
+        val note = s.callMode == CallMode.CHOSEN && s.people.isNotEmpty() && query.isBlank()
         ScrollUnderFade {
-            if (!only) {
-                Text("Every $app message buzzes, from every chat. To pick some, choose Only these\u00A0chats.",
-                    style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
-                return@ScrollUnderFade
-            }
+            // One column with explicit gaps, so every tab spaces the same way.
             Column {
-                val shown = options.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
-                    .sortedBy { if (isChosen(pinned, it)) 0 else 1 }
-                // Chats showing now and contacts get a heading; chats seen earlier and typed ones follow under "Earlier"
-                // only when a heading came before them, so a plain list stays plain.
-                val headed = shown.any { it.source == ChatSource.ON_PHONE_NOW || it.source == ChatSource.CONTACT }
-                var section: String? = null
-                var first = true
-                shown.forEach { o ->
-                    val title = if (isChosen(pinned, o)) "Your chats" else when (o.source) {
-                        ChatSource.ON_PHONE_NOW -> "On your phone now"
-                        ChatSource.CONTACT -> "Your contacts on $app"
-                        else -> if (headed) "Earlier" else if (shown.any { isChosen(pinned, it) }) "Other chats" else null
+                if (tab == ChatTab.ALL) AllMessagesPanel(app, !kept.isNullOrEmpty())
+                else {
+                    val shown = inTab.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+                        .sortedBy { if (isChosen(pinned, it)) 0 else if (it.source == ChatSource.CONTACT) 2 else 1 }
+                    var section: String? = null
+                    var first = true
+                    shown.forEach { o ->
+                        val title = when {
+                            isChosen(pinned, o) -> if (groups) "Your groups" else "Your people"
+                            o.source == ChatSource.CONTACT -> "Your contacts on $app"
+                            groups -> if (shown.any { isChosen(pinned, it) }) "Other groups" else null
+                            else -> "Recent"
+                        }
+                        if (title != section) {
+                            if (section != null || !first) Gap(16)
+                            if (title != null) { Label(title); Gap(4) }
+                            section = title
+                            first = true
+                        }
+                        val last = seen.firstOrNull { it.pkg == pkg && it.group == o.group && (if (o.id != null) it.id == o.id else it.name.equals(o.name, ignoreCase = true)) }
+                        val sub = when {
+                            o.source == ChatSource.TYPED -> "Typed \u00B7 waits for a message"
+                            (week[last?.id ?: o.id] ?: 0) >= 2 -> "${week[last?.id ?: o.id]} this week"
+                            last != null -> messagedAt(last.lastSeen)
+                            else -> null
+                        }
+                        ChatRow(o, isChosen(ticked, o), sub, first) { toggle(o) }
+                        first = false
                     }
-                    if (title != null && title != section) {
-                        if (section != null || !first) Gap(16)
-                        Label(title)
-                        Gap(4)
-                        section = title
-                        first = true
+                    // A name that isn't listed yet can be added straight from the search, once no listed name starts with it.
+                    val typed = query.trim()
+                    if (typed.isNotEmpty() && shown.none { it.name.startsWith(typed, ignoreCase = true) }) TextAction("Add \u201C$typed\u201D as a ${if (groups) "group" else "person"}", {
+                        add(typed)
+                        query = ""
+                        focus.clearFocus()
+                    })
+                    if (query.isBlank()) {
+                        val sparse = if (groups) inTab.isEmpty() else !contactsCard && inTab.size < 3
+                        // The last row ends with 10 dp of its own padding.
+                        if (shown.isNotEmpty()) Gap(4)
+                        if (contactsCard) ContactsCard(app, onNotNow = { engine.store.update { it.copy(contactsNotNow = true) } }) {
+                            fromLink = false
+                            askContacts.launch(Manifest.permission.READ_CONTACTS)
+                        } else if (sparse) SparseCard(app, groups)
+                        if (contactsCard || sparse) Gap(12)
+                        // The action's row is 48 dp for the finger; its text sits 24 dp under the content above.
+                        if (typing) TypeChat(if (groups) "Group\u2019s name" else "Person\u2019s name") { name -> typing = false; add(name) }
+                        else ChatAction(if (groups) "Type a group\u2019s name" else "Type a person\u2019s name") { typing = true }
+                        if (sparse) Text("Spell it the way $app shows it. Upper or lower case both\u00A0work.",
+                            style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
+                            modifier = Modifier.padding(start = 34.dp).layout { m, c ->
+                                val p = m.measure(c)
+                                val up = 8.dp.roundToPx()
+                                layout(p.width, p.height - up) { p.place(0, -up) }
+                            })
+                        if (canList && s.contactsNotNow) ChatAction("List contacts who use $app", Curve.PERSON) {
+                            fromLink = true
+                            askContacts.launch(Manifest.permission.READ_CONTACTS)
+                        }
                     }
-                    ChatRow(o, isChosen(ticked, o), week[o.id] ?: 0, first) { toggle(o) }
-                    first = false
                 }
-                // A name that isn't listed yet can be added straight from the search, once no listed name starts with it.
-                val typed = query.trim()
-                if (typed.isNotEmpty() && shown.none { it.name.startsWith(typed, ignoreCase = true) }) TextAction("Add \u201C$typed\u201D as a chat", {
-                    setChats(ticked + Chat(null, typed, false))
-                    query = ""
-                    focus.clearFocus()
-                })
+                if (note) {
+                    // The action rows end with 12 dp of touch room under their text.
+                    Gap(if (tab == ChatTab.ALL) 24 else 12)
+                    RingersNote(s)
+                }
             }
-            if (query.isNotBlank()) return@ScrollUnderFade
-            if (contactsCard) ContactsCard(app, onNotNow = { engine.store.update { it.copy(contactsNotNow = true) } }) {
-                fromLink = false
-                askContacts.launch(Manifest.permission.READ_CONTACTS)
-            } else if (options.size < 3 && query.isBlank()) SparseCard(app)
-            Column {
-                if (typing) TypeChat { name ->
-                    typing = false
-                    if (name.isNotBlank() && ticked.none { it.name.equals(name.trim(), ignoreCase = true) }) setChats(ticked + Chat(null, name.trim(), false))
-                } else TextAction("Type a chat\u2019s name", { typing = true })
-                if (canList && s.contactsNotNow) TextAction("List contacts who use $app", {
-                    fromLink = true
-                    askContacts.launch(Manifest.permission.READ_CONTACTS)
-                }, curve = Curve.PERSON)
-            }
-            Text(buildString {
-                append(if (ticked.isEmpty()) "Until you tick a chat, every $app chat\u00A0buzzes." else "Only ticked chats buzz.")
-                if (s.callMode == CallMode.CHOSEN && s.people.isNotEmpty())
-                    append(" ${summarize(s.people.map { it.name }, "")} from Who can ring still buzz when they message you\u00A0directly.")
-            }, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
         }
     }
 }
 
+/** All messages: the Who can ring pattern, an icon over one sentence that says what will happen. */
 @Composable
-private fun ChatRow(o: ChatOption, on: Boolean, week: Int, first: Boolean, onClick: () -> Unit) {
+private fun AllMessagesPanel(app: String, kept: Boolean) {
+    val a = LocalAirColors.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).semantics(mergeDescendants = true) {}) {
+        Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
+            CurveIcon(Curve.CHAT, 24.dp, a.ink, 1.8f)
+        }
+        Gap(8)
+        Text(buildAnnotatedString {
+            withStyle(SpanStyle(color = a.accent, fontWeight = FontWeight(500))) { append("Every $app message") }
+            append(" will buzz your Fitbit\u00A0Air.")
+        }, style = Type.body.copy(fontSize = 20.sp, lineHeight = 28.sp, lineBreak = LineBreak.Heading), color = a.ink)
+        Gap(6)
+        Text(if (kept) "The chats you ticked are kept for when you switch\u00A0back." else "To pick some, choose People or\u00A0Groups.",
+            style = Type.small.copy(lineBreak = LineBreak.Heading), color = a.muted)
+    }
+}
+
+/** An accent action in the chat sheet: a 48 dp row whose text sits 12 dp in from its top and bottom. */
+@Composable
+private fun ChatAction(text: String, curve: Curve? = null, onClick: () -> Unit) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth().height(48.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        if (curve != null) CurveIcon(curve, 22.dp, a.accent) else GlyphIcon(Glyph.PLUS, 22.dp, a.accent)
+        Spacer(Modifier.width(12.dp))
+        Text(text, style = Type.bodyMedium, color = a.accent)
+    }
+}
+
+/** A chat with its first letter or the group mark, when it last wrote, and its checkbox. People need no "Person" line. */
+@Composable
+private fun ChatRow(o: ChatOption, on: Boolean, sub: String?, first: Boolean, onClick: () -> Unit) {
     val a = LocalAirColors.current
     LineRow(first, onClick) {
         Box(Modifier.size(40.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
             if (o.group) CurveIcon(Curve.PEOPLE, 18.dp, a.ink, 1.8f)
             else Text(o.name.take(1).uppercase(), style = Type.bodyMedium, color = a.ink)
         }
-        val kind = if (o.group) "Group" else "Person"
-        val sub = when {
-            o.source == ChatSource.TYPED -> "Typed · waits for a message"
-            o.source == ChatSource.ON_PHONE_NOW -> "$kind · New message"
-            week > 0 -> "$kind · $week this week"
-            else -> kind
-        }
-        TwoLine(o.name, Modifier.weight(1f)) { Label(sub) }
+        TwoLine(o.name, Modifier.weight(1f), sub?.let { { Label(it) } })
         Mark(on, radio = false)
     }
 }
@@ -301,23 +381,25 @@ private fun ContactsCard(app: String, onNotNow: () -> Unit, onShow: () -> Unit) 
     }
 }
 
-/** A new install's list is short: say plainly where more chats come from. */
+/** A new install's list is short: say plainly where more people or groups come from. */
 @Composable
-private fun SparseCard(app: String) {
+private fun SparseCard(app: String, groups: Boolean) {
     val a = LocalAirColors.current
     Column(Modifier.fillMaxWidth().drawBehind {
         val r = 24.dp.toPx()
         drawRoundRect(a.outline, cornerRadius = CornerRadius(r), style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))))
     }.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("More chats show up as they message\u00A0you", style = Type.bodyMedium.copy(lineBreak = LineBreak.Heading), color = a.ink)
-        Text("Every $app chat that messages you while AirBuzz is on joins this list. To add one now, type its\u00A0name.",
+        Text(if (groups) "Groups show up here after they message\u00A0you" else "People show up here after they message\u00A0you",
+            style = Type.bodyMedium.copy(lineBreak = LineBreak.Heading), color = a.ink)
+        Text(if (groups) "Every $app group that messages you while AirBuzz is on joins this list. To add one now, type its\u00A0name."
+            else "Everyone who messages you on $app while AirBuzz is on joins this list. To add someone now, type their\u00A0name.",
             style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
     }
 }
 
 /** Typing a chat's name: it is ticked straight away and pinned to the chat when that chat next writes. */
 @Composable
-private fun TypeChat(onDone: (String) -> Unit) {
+private fun TypeChat(hint: String, onDone: (String) -> Unit) {
     val a = LocalAirColors.current
     var name by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
@@ -325,7 +407,7 @@ private fun TypeChat(onDone: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
-            if (name.isEmpty()) Text("Chat or person\u2019s name", style = Type.body, color = a.muted)
+            if (name.isEmpty()) Text(hint, style = Type.body, color = a.muted)
             BasicTextField(name, { name = it }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,
                 textStyle = Type.body.copy(color = a.ink), cursorBrush = SolidColor(a.accent),
                 keyboardOptions = KeyboardOptions(KeyboardCapitalization.Words, imeAction = ImeAction.Done),

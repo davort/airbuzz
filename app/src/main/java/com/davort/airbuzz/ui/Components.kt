@@ -134,6 +134,8 @@ enum class Curve(val d: String) {
     MOON("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"),
     /** A magnifier, for search fields. */
     SEARCH("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14M20 20l-4.35-4.35"),
+    /** A speech bubble, for an app's messages. */
+    CHAT("M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.4A8.4 8.4 0 1 1 21 11.5z"),
     /** One person, for listing contacts. */
     PERSON("M19 21v-1.5a4.5 4.5 0 0 0-4.5-4.5h-5A4.5 4.5 0 0 0 5 19.5V21M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8"),
     BIN("M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"),
@@ -321,24 +323,28 @@ fun AirSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier 
 }
 
 /**
- * Slim segmented button (decision 26): 40 dp, thin outline. The selected one is filled and its label is ink, the others
- * muted; there is no check, and every label keeps its weight and stays centred, so switching never moves one. The fill
- * and the label colour fade together.
+ * Segmented choice that filters or switches a view, such as Activity's All, Buzzed and Ignored or a chat sheet's
+ * tabs. The options sit on a 48 dp track; the selected one is a green tint with its label in the accent, which slides
+ * to a new choice (Davor, 24 Nov). Every label keeps its weight and stays centred, so switching never moves one.
+ * [PillChoice] is the ink-filled version for choices that decide what will happen. The track is the page colour on a
+ * sheet; on a page, pass the surface colour so it shows.
  */
 @Composable
-fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
+fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, track: Color = LocalAirColors.current.bg, onSelect: (T) -> Unit) {
     val a = LocalAirColors.current
-    Row(modifier.fillMaxWidth().height(40.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape).selectableGroup()) {
-        options.forEachIndexed { i, (value, label) ->
-            if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(a.outline))
-            val on = value == selected
-            val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "seg")
-            Box(
-                Modifier.weight(1f).fillMaxHeight().background(a.selected.copy(alpha = a.selected.alpha * shown))
-                    .selectable(on, role = Role.RadioButton) { onSelect(value) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, style = Type.small, color = lerp(a.muted, a.ink, shown), maxLines = 1, softWrap = false)
+    val index = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    val at by animateFloatAsState(index.toFloat(), tween(220, easing = Motion.InOut), label = "seg")
+    BoxWithConstraints(modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(track).padding(4.dp)) {
+        val gap = 4.dp
+        val w = (maxWidth - gap * (options.size - 1)) / options.size
+        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(a.tint))
+        Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            options.forEachIndexed { i, (value, label) ->
+                val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
+                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, role = Role.RadioButton) { onSelect(value) },
+                    contentAlignment = Alignment.Center) {
+                    Text(label, style = Type.smallMedium, color = lerp(a.muted, a.accent, on), maxLines = 1, softWrap = false)
+                }
             }
         }
     }
