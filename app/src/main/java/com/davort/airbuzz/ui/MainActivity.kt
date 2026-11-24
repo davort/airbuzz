@@ -190,6 +190,8 @@ fun App(engine: Engine, settings: AirSettings) {
     val context = LocalContext.current
     val resumed = rememberResumeTick()
     LaunchedEffect(resumed) { AppList.refresh(context.applicationContext) }
+    // 0.8.0 and 0.8.1 could keep an app with no chats ticked, which blocked it; no ticks now means all messages.
+    LaunchedEffect(Unit) { engine.store.update { s -> if (s.chats.values.any { it.isEmpty() }) s.copy(chats = s.chats.filterValues { it.isNotEmpty() }) else s } }
     val inSheet = screen.inSheet
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         if (!settings.onboarded) {

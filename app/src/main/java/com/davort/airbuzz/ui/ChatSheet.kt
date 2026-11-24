@@ -79,16 +79,14 @@ val CHAT_APPS = listOf("com.whatsapp", "org.telegram.messenger", "com.discord")
 
 /** An app's second line in Apps that buzz: "All messages", or how many chats it is limited to. */
 fun chatsSummary(chats: List<Chat>?): String = when (chats?.size) {
-    null -> "All messages"
-    0 -> "No chats ticked"
+    null, 0 -> "All messages"
     1 -> "Only 1 chat"
     else -> "Only ${chats.size} chats"
 }
 
 /** An app as Home's Messages blank names it: "WhatsApp", or "3 WhatsApp chats" when only some chats buzz. */
 fun appInSentence(label: String, chats: List<Chat>?): String = when (chats?.size) {
-    null -> label
-    0 -> "no $label chats"
+    null, 0 -> label
     1 -> "1 $label chat"
     else -> "${chats.size} $label chats"
 }
@@ -130,7 +128,11 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     val resumed = rememberResumeTick()
     var contactsOk by remember { mutableStateOf(ChatBook.hasContacts(context)) }
     LaunchedEffect(resumed) { contactsOk = ChatBook.hasContacts(context) }
-    val chosen = s.chats[pkg]
+    // An app buzzes for all its chats until at least one is ticked (Davor, 24 Nov), so an empty list is never kept.
+    // Only these chats can still be shown with nothing ticked while the sheet is open, ready for the first tick.
+    val chosen = s.chats[pkg]?.takeIf { it.isNotEmpty() }
+    val ticked = chosen.orEmpty()
+    var only by remember(pkg) { mutableStateOf(chosen != null) }
     val options = remember(pkg, seen, chosen, contactsOk) {
         val offered = engine.chatOptions(pkg)
         // A ticked chat that hasn't written for a month has left the chat book; it stays listed so it can be unticked.
@@ -170,13 +172,13 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
     val contacts = options.count { it.source == ChatSource.CONTACT }
     val chats = options.count { it.source == ChatSource.ON_PHONE_NOW || it.source == ChatSource.SEEN }
 
-    fun setChats(list: List<Chat>?) = engine.store.update { st -> st.copy(chats = if (list == null) st.chats - pkg else st.chats + (pkg to list)) }
+    fun setChats(list: List<Chat>?) = engine.store.update { st -> st.copy(chats = if (list.isNullOrEmpty()) st.chats - pkg else st.chats + (pkg to list)) }
     fun toggle(o: ChatOption) {
         val list = s.chats[pkg].orEmpty()
         setChats(if (isChosen(list, o)) list.filterNot { isChosen(listOf(it), o) } else list + Chat(o.id, o.name, o.group))
     }
 
-    val searchable = chosen != null && (contactsOk && contacts > 0 || options.size > 8)
+    val searchable = only && (contactsOk && contacts > 0 || options.size > 8)
     Sheet("$app chats", onClose, actionShown = !searching) {
         AnimatedVisibility(!searching, enter = fadeIn(tween(160)) + expandVertically(tween(220, easing = Motion.InOut)),
             exit = fadeOut(tween(120)) + shrinkVertically(tween(220, easing = Motion.InOut))) {
@@ -191,14 +193,15 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                     layout(p.width, p.height - up) { p.place(0, -up) }
                 })
                 Gap(16)
-                Seg(listOf(false to "All messages", true to "Only these chats"), chosen != null) { only ->
-                    if (only) setChats(kept ?: emptyList()) else { kept = chosen; setChats(null) }
+                Seg(listOf(false to "All messages", true to "Only these chats"), only) { on ->
+                    only = on
+                    if (on) setChats(kept) else { kept = chosen; setChats(null) }
                 }
             }
         }
         if (searchable) SearchField(query, "Search chats", Modifier.onFocusChanged { searching = it.isFocused }) { query = it }
         ScrollUnderFade {
-            if (chosen == null) {
+            if (!only) {
                 Text("Every $app message buzzes, from every chat. To pick some, choose Only these\u00A0chats.",
                     style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
                 return@ScrollUnderFade
@@ -224,13 +227,13 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                         section = title
                         first = true
                     }
-                    ChatRow(o, isChosen(chosen, o), week[o.id] ?: 0, first) { toggle(o) }
+                    ChatRow(o, isChosen(ticked, o), week[o.id] ?: 0, first) { toggle(o) }
                     first = false
                 }
                 // A name that isn't listed yet can be added straight from the search, once no listed name starts with it.
                 val typed = query.trim()
                 if (typed.isNotEmpty() && shown.none { it.name.startsWith(typed, ignoreCase = true) }) TextAction("Add \u201C$typed\u201D as a chat", {
-                    setChats(chosen + Chat(null, typed, false))
+                    setChats(ticked + Chat(null, typed, false))
                     query = ""
                     focus.clearFocus()
                 })
@@ -243,7 +246,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
             Column {
                 if (typing) TypeChat { name ->
                     typing = false
-                    if (name.isNotBlank() && chosen.none { it.name.equals(name.trim(), ignoreCase = true) }) setChats(chosen + Chat(null, name.trim(), false))
+                    if (name.isNotBlank() && ticked.none { it.name.equals(name.trim(), ignoreCase = true) }) setChats(ticked + Chat(null, name.trim(), false))
                 } else TextAction("Type a chat\u2019s name", { typing = true })
                 if (canList && s.contactsNotNow) TextAction("List contacts who use $app", {
                     fromLink = true
@@ -251,7 +254,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                 }, curve = Curve.PERSON)
             }
             Text(buildString {
-                append("Only ticked chats buzz.")
+                append(if (ticked.isEmpty()) "Until you tick a chat, every $app chat\u00A0buzzes." else "Only ticked chats buzz.")
                 if (s.callMode == CallMode.CHOSEN && s.people.isNotEmpty())
                     append(" ${summarize(s.people.map { it.name }, "")} from Who can ring still buzz when they message you\u00A0directly.")
             }, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
