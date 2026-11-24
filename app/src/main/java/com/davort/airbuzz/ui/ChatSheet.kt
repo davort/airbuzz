@@ -65,6 +65,14 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -273,7 +281,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                             last != null -> messagedAt(last.lastSeen)
                             else -> null
                         }
-                        ChatRow(o, isChosen(ticked, o), sub, first) { toggle(o) }
+                        ChatRow(o, isChosen(ticked, o), sub, first, last?.lastSeen, { engine.chatBook.photo(o) }) { toggle(o) }
                         first = false
                     }
                     // A name that isn't listed yet can be added straight from the search, once no listed name starts with it.
@@ -348,13 +356,20 @@ private fun ChatAction(text: String, curve: Curve? = null, onClick: () -> Unit) 
     }
 }
 
-/** A chat with its first letter or the group mark, when it last wrote, and its checkbox. People need no "Person" line. */
+/**
+ * A chat with its photo, when it last wrote, and its checkbox. The photo is the contact's own or the picture the
+ * chat's notification showed (#33); without one, a person shows their first letter and a group the people mark.
+ * People need no "Person" line. The photo is read off the main thread and again when the chat writes.
+ */
 @Composable
-private fun ChatRow(o: ChatOption, on: Boolean, sub: String?, first: Boolean, onClick: () -> Unit) {
+private fun ChatRow(o: ChatOption, on: Boolean, sub: String?, first: Boolean, wrote: Long?, load: () -> Bitmap?, onClick: () -> Unit) {
     val a = LocalAirColors.current
+    val photo by produceState<ImageBitmap?>(null, o, wrote) { value = withContext(Dispatchers.IO) { load()?.asImageBitmap() } }
     LineRow(first, onClick) {
         Box(Modifier.size(40.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
-            if (o.group) CurveIcon(Curve.PEOPLE, 18.dp, a.ink, 1.8f)
+            val p = photo
+            if (p != null) Image(p, null, Modifier.size(40.dp), contentScale = ContentScale.Crop)
+            else if (o.group) CurveIcon(Curve.PEOPLE, 18.dp, a.ink, 1.8f)
             else Text(o.name.take(1).uppercase(), style = Type.bodyMedium, color = a.ink)
         }
         TwoLine(o.name, Modifier.weight(1f), sub?.let { { Label(it) } })
