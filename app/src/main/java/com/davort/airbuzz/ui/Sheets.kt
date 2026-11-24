@@ -665,10 +665,11 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
                             GlyphIcon(Glyph.CHEVRON, 12.dp, a.accent, 3f)
                         }
                     } else TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
-                    // 48 dp to tap, with the box itself in line with the other rows' boxes.
-                    if (chats) Box(Modifier.offset(x = 13.dp).size(48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Checkbox, onClickLabel = "Stop ${app.label} buzzing", onClick = toggle),
-                        contentAlignment = Alignment.Center) { Mark(true, radio = false) }
-                    else Mark(app.pkg in s.apps, radio = false)
+                    // Every row keeps its checkbox in the same 48 dp box, so ticking WhatsApp on or off doesn't change
+                    // the row's height (Davor, 24 Nov). The box sits flush with the row's end, like the other marks.
+                    Box(Modifier.offset(x = 13.dp).size(48.dp).clip(RoundedCornerShape(12.dp))
+                        .then(if (chats) Modifier.clickable(role = Role.Checkbox, onClickLabel = "Stop ${app.label} buzzing", onClick = toggle) else Modifier),
+                        contentAlignment = Alignment.Center) { Mark(app.pkg in s.apps, radio = false) }
                 }
             }
             if (query.isBlank()) item(key = "notes") {
