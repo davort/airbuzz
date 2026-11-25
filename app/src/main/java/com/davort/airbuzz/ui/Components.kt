@@ -1,5 +1,7 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.graphics.compositeOver
+
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -337,7 +339,7 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
     BoxWithConstraints(modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(track).padding(4.dp)) {
         val gap = 4.dp
         val w = (maxWidth - gap * (options.size - 1)) / options.size
-        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(a.tint))
+        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(if (a.dark) a.tint else a.accent.copy(alpha = 0.28f).compositeOver(a.surface)))
         Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
             options.forEachIndexed { i, (value, label) ->
                 val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
