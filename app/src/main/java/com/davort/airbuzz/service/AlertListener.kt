@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.app.Notification
 import android.app.Person
 import android.content.ComponentName
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.PowerManager
 import android.service.notification.NotificationListenerService
@@ -49,7 +50,7 @@ class AlertListener : NotificationListenerService() {
         if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
         if (lastText.size > 500) lastText.clear()
         val from = messageFrom(sbn)
-        if (from.chatId != null) engine.chatBook.savePhoto(sbn.packageName, from.chatId, n.getLargeIcon())
+        if (from.chatId != null) engine.chatBook.savePhoto(sbn.packageName, from.chatId, chatIcon(n, from.group))
         engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), from.chatName ?: chatName(n), from, moment(), sbn.postTime)
     }
 
@@ -141,6 +142,23 @@ class AlertListener : NotificationListenerService() {
         val importance = if (currentRanking?.getRanking(sbn.key, ranking) == true) ranking.importance else null
         val silent = importance != null && importance < android.app.NotificationManager.IMPORTANCE_DEFAULT
         return MessageFrom(chatId, name, group, sender, silent)
+    }
+
+    /**
+     * The chat's picture: WhatsApp puts it on the large icon (the group's own picture in a group). Telegram leaves
+     * that empty (Davor's phone, 25 Nov), so fall back to the conversation icon, then, in a chat with one person, the
+     * sender's icon. A sender's icon never stands for a group.
+     */
+    private fun chatIcon(n: Notification, group: Boolean): Icon? {
+        n.getLargeIcon()?.let { return it }
+        if (Build.VERSION.SDK_INT >= 30) {
+            val conv = if (Build.VERSION.SDK_INT >= 33) n.extras.getParcelable("android.conversationIcon", Icon::class.java)
+            else @Suppress("DEPRECATION") n.extras.getParcelable("android.conversationIcon")
+            conv?.let { return it }
+        }
+        if (group) return null
+        val style = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n) }.getOrNull()
+        return runCatching { style?.messages?.lastOrNull()?.person?.icon?.toIcon(this) }.getOrNull()
     }
 
     /** The chat or sender, for the activity log: the conversation title in a group, otherwise the title. */
