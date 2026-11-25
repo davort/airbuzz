@@ -390,8 +390,9 @@ class Engine(private val app: Context) {
     }
 
     /**
-     * What the chat sheet offers for [pkg], without repeats, in its order: chats showing now, contacts (people only),
-     * chats seen earlier, then chosen chats still waiting for their first message.
+     * What the chat sheet offers for [pkg], without repeats: chats showing now, chats seen earlier, contacts (people
+     * only), then chosen chats still waiting for their first message. Chats with an ID come before contacts, so a
+     * contact who has messaged shows once, with the chat's ID (on Davor's phone 0.8.4 listed Ozren twice).
      */
     fun chatOptions(pkg: String): List<ChatOption> {
         val now = chatsOnPhone(pkg)
@@ -400,7 +401,7 @@ class Engine(private val app: Context) {
         val typed = settings.chats[pkg].orEmpty().filter { it.id == null }.map { ChatOption(pkg, null, it.name, it.group, ChatSource.TYPED) }
         val out = mutableListOf<ChatOption>()
         fun known(o: ChatOption) = out.any { (o.id != null && it.id == o.id) || it.name.equals(o.name, ignoreCase = true) && it.group == o.group }
-        (now + chatBook.contacts(pkg) + seen + typed).forEach { if (!known(it)) out += it }
+        (now + seen + chatBook.contacts(pkg) + typed).forEach { if (!known(it)) out += it }
         return out
     }
 
