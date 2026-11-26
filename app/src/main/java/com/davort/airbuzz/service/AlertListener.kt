@@ -5,7 +5,10 @@ import android.app.Notification
 import android.app.Person
 import android.content.ComponentName
 import android.graphics.drawable.Icon
+import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.telecom.TelecomManager
 import android.service.notification.NotificationListenerService
@@ -16,6 +19,7 @@ import com.davort.airbuzz.data.ChatSource
 import com.davort.airbuzz.engine
 import com.davort.airbuzz.rules.MessageFrom
 import com.davort.airbuzz.rules.Caller
+import com.davort.airbuzz.rules.LoneSummaries
 import com.davort.airbuzz.rules.Rules
 
 /**
@@ -30,41 +34,113 @@ class AlertListener : NotificationListenerService() {
     private val callShape = HashMap<String, String>()
     /** Why a chosen app's notification last didn't count as a new message, per key, so each reason logs once. */
     private val dropped = HashMap<String, String>()
+    /** Rings that started or ran while the phone was in ringtone mode; they end when it leaves that mode. */
+    private val modeRinging = HashSet<String>()
+    private val summaries = LoneSummaries()
+    private val main = Handler(Looper.getMainLooper())
+    private val audio: AudioManager? by lazy { getSystemService(AudioManager::class.java) }
+    private var audioMode = AudioManager.MODE_NORMAL
+    private var modeListener: Any? = null
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         val n = sbn.notification
         val engine = engine
-        val state = callState(n)
+        val state = callState(sbn)
         if (state != CallState.INCOMING) noteCallShape(sbn, state)
         when (state) {
-            CallState.INCOMING -> {
-                if (!ringing.add(sbn.key)) return
-                engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(n), moment(), sbn.postTime)
-                return
-            }
+            CallState.INCOMING -> { ring(sbn); return }
             CallState.OTHER -> {
-                if (sbn.key in ringing) { ringing -= sbn.key; engine.onCallEnded(sbn.key) }
+                if (sbn.key in ringing) endRing(sbn.key, "")
                 return
             }
             CallState.NONE -> Unit
         }
-        if (!isMessage(n)) { noteDropped(sbn, notMessageReason(n)); return }
+        if (n.category == Notification.CATEGORY_MISSED_CALL) {
+            val dialer = defaultDialer()
+            engine.onMissedCall(setOf(sbn.packageName) + if (sbn.packageName == dialer) CALL_SCREENS else emptySet(), appLabel(sbn.packageName))
+        }
+        val summary = n.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        if (!isMessage(n) && !(summary && isMessage(n, summaryToo = true) && sbn.packageName in engine.settings.apps)) {
+            noteDropped(sbn, notMessageReason(n)); return
+        }
         val ex = n.extras
         val text = listOf(ex.getCharSequence(Notification.EXTRA_TITLE), ex.getCharSequence(Notification.EXTRA_TEXT),
             ex.getCharSequence(Notification.EXTRA_BIG_TEXT)).joinToString("\u0000").hashCode()
         val seen = lastText.put(sbn.key, text)
         if (seen == text) { noteDropped(sbn, "same text as before"); return }
         if (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0) { noteDropped(sbn, "a silent update"); return }
-        dropped -= sbn.key
         if (lastText.size > 500) lastText.clear()
-        val from = messageFrom(sbn)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (summary) {
+            // A group summary stands for a message only when no message of its group comes with it (a tester's
+            // Reddit, 26 Nov: the messages came 11–16 min later or never).
+            if (!summaries.summary(sbn.key, sbn.groupKey, text, now)) { noteDropped(sbn, "a group summary"); return }
+            val from = messageFrom(sbn)
+            main.postDelayed({
+                val showing = getActiveNotifications(arrayOf(sbn.key))?.isNotEmpty() ?: true
+                if (!showing) summaries.removed(sbn.key)
+                if (!summaries.due(sbn.key, android.os.SystemClock.elapsedRealtime())) return@postDelayed
+                dropped -= sbn.key
+                engine.note("${appLabel(sbn.packageName)} showed only a group summary, with no message after it; taken as a message")
+                deliver(sbn, from)
+            }, SUMMARY_WAIT_MS)
+            return
+        }
+        if (!summaries.message(sbn.groupKey, text, now)) { noteDropped(sbn, "its group summary already buzzed for it"); return }
+        dropped -= sbn.key
+        deliver(sbn, messageFrom(sbn))
+    }
+
+    private fun deliver(sbn: StatusBarNotification, from: MessageFrom) {
+        val n = sbn.notification
         if (from.chatId != null) engine.chatBook.savePhoto(sbn.packageName, from.chatId, chatIcon(n, from.group))
         engine.onMessage(sbn.key, sbn.packageName, appLabel(sbn.packageName), from.chatName ?: chatName(n), from, moment(), sbn.postTime)
     }
 
+    private fun ring(sbn: StatusBarNotification) {
+        if (audioMode == AudioManager.MODE_RINGTONE) modeRinging += sbn.key
+        if (!ringing.add(sbn.key)) return
+        engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(sbn.notification), moment(), sbn.postTime)
+    }
+
+    private fun endRing(key: String, why: String) {
+        ringing -= key
+        modeRinging -= key
+        engine.onCallEnded(key, why)
+    }
+
+    /**
+     * The phone's audio mode, which Android's call service sets to ringtone while a phone call rings and to in call
+     * once it is answered. On OnePlus the ringing notification of the built-in phone app looks the same while ringing
+     * and in a call (a tester's log, 26 Nov), so the mode tells them apart; and a ring that ran in ringtone mode stops
+     * as soon as the phone leaves it, which can come before the app updates its notification.
+     */
+    private fun onAudioMode(mode: Int) {
+        val was = audioMode
+        if (mode == was) return
+        audioMode = mode
+        if (was == AudioManager.MODE_RINGTONE || mode == AudioManager.MODE_RINGTONE || ringing.isNotEmpty()) {
+            engine.note("Phone audio mode: ${modeName(was)} → ${modeName(mode)}")
+        }
+        if (mode == AudioManager.MODE_RINGTONE) {
+            modeRinging += ringing
+            // A system call screen that posted before the mode changed rings now.
+            (runCatching { activeNotifications }.getOrNull() ?: emptyArray())
+                .filter { callState(it) == CallState.INCOMING }.forEach(::ring)
+        } else if (was == AudioManager.MODE_RINGTONE) {
+            modeRinging.filter { it in ringing }.forEach { endRing(it, ": the phone stopped ringing (${modeName(mode)})") }
+            modeRinging.clear()
+        }
+    }
+
     override fun onListenerConnected() {
         engine.note("Notification listener connected")
+        audioMode = audio?.mode ?: AudioManager.MODE_NORMAL
+        if (Build.VERSION.SDK_INT >= 31 && modeListener == null) {
+            val l = AudioManager.OnModeChangedListener { main.post { onAudioMode(it) } }
+            runCatching { audio?.addOnModeChangedListener(mainExecutor, l) }.onSuccess { modeListener = l }
+        }
         // Android answers null while the listener isn't bound; then a late buzz goes ahead as before.
         engine.isShowing = { key -> getActiveNotifications(arrayOf(key))?.isNotEmpty() ?: true }
         // The chat sheet's "On your phone now": chats of an app with a notification showing (issue #33).
@@ -84,14 +160,26 @@ class AlertListener : NotificationListenerService() {
      */
     override fun onListenerDisconnected() {
         engine.note("Notification listener disconnected; asking Android to reconnect it")
+        stopModeListener()
         requestRebind(ComponentName(this, AlertListener::class.java))
+    }
+
+    override fun onDestroy() {
+        stopModeListener()
+        super.onDestroy()
+    }
+
+    private fun stopModeListener() {
+        if (Build.VERSION.SDK_INT >= 31) (modeListener as? AudioManager.OnModeChangedListener)?.let { audio?.removeOnModeChangedListener(it) }
+        modeListener = null
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         lastText -= sbn.key
         callShape -= sbn.key
         dropped -= sbn.key
-        if (ringing.remove(sbn.key)) engine.onCallEnded(sbn.key)
+        summaries.removed(sbn.key)
+        if (sbn.key in ringing) endRing(sbn.key, "")
         // Only the user's own dismissals count as seen: apps also remove and repost notifications on their own.
         else if (reason == REASON_CLICK || reason == REASON_CANCEL || reason == REASON_CANCEL_ALL) engine.onMessageDismissed(sbn.key)
     }
@@ -100,16 +188,23 @@ class AlertListener : NotificationListenerService() {
 
     /**
      * Incoming calls are recognised from any app: Android's call style marks them as incoming; older apps post a
-     * call-category notification with a full-screen intent while ringing and drop it once answered.
+     * call-category notification with a full-screen intent while ringing and drop it once answered. A system call
+     * screen's or the default phone app's call notification without either rings while the phone is in ringtone mode
+     * (OnePlus, 26 Nov).
      */
-    private fun callState(n: Notification): CallState {
+    private fun callState(sbn: StatusBarNotification): CallState {
+        val n = sbn.notification
         val ex = n.extras
         if (ex.getString(Notification.EXTRA_TEMPLATE) == "android.app.Notification\$CallStyle") {
             return if (Build.VERSION.SDK_INT >= 31 && ex.getInt(Notification.EXTRA_CALL_TYPE) == Notification.CallStyle.CALL_TYPE_INCOMING) {
                 CallState.INCOMING
             } else CallState.OTHER
         }
-        if (n.category == Notification.CATEGORY_CALL) return if (n.fullScreenIntent != null) CallState.INCOMING else CallState.OTHER
+        if (n.category == Notification.CATEGORY_CALL) return when {
+            n.fullScreenIntent != null -> CallState.INCOMING
+            audioMode == AudioManager.MODE_RINGTONE && (sbn.packageName in CALL_SCREENS || sbn.packageName == defaultDialer()) -> CallState.INCOMING
+            else -> CallState.OTHER
+        }
         return CallState.NONE
     }
 
@@ -123,7 +218,7 @@ class AlertListener : NotificationListenerService() {
     private fun noteCallShape(sbn: StatusBarNotification, state: CallState) {
         val n = sbn.notification
         val template = n.extras.getString(Notification.EXTRA_TEMPLATE)?.substringAfterLast('$')
-        val dialer = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
+        val dialer = defaultDialer()
         if (template != "CallStyle" && n.category != Notification.CATEGORY_CALL && sbn.packageName != dialer &&
             sbn.packageName !in CALL_SCREENS) return
         val callType = if (template == "CallStyle" && Build.VERSION.SDK_INT >= 31) n.extras.getInt(Notification.EXTRA_CALL_TYPE).toString() else "-"
@@ -131,7 +226,8 @@ class AlertListener : NotificationListenerService() {
             "template ${template ?: "none"}, call type $callType, category ${n.category ?: "none"}, " +
             "full-screen ${if (n.fullScreenIntent != null) "yes" else "no"}, " +
             "ongoing ${if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) "yes" else "no"}, " +
-            "foreground service ${if (n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0) "yes" else "no"}"
+            "foreground service ${if (n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0) "yes" else "no"}, " +
+            "audio mode ${modeName(audioMode)}"
         if (callShape.put(sbn.key, shape) == shape) return
         if (callShape.size > 50) callShape.clear()
         engine.note("Call-like notification not taken as ringing (${state.name.lowercase()}): $shape")
@@ -168,8 +264,19 @@ class AlertListener : NotificationListenerService() {
         return Caller(name?.takeUnless(Rules::looksLikeNumber), number)
     }
 
-    private fun isMessage(n: Notification): Boolean {
-        if (n.flags and (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE) != 0) return false
+    private fun defaultDialer(): String? = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
+
+    private fun modeName(mode: Int) = when (mode) {
+        AudioManager.MODE_NORMAL -> "normal"
+        AudioManager.MODE_RINGTONE -> "ringtone"
+        AudioManager.MODE_IN_CALL -> "in call"
+        AudioManager.MODE_IN_COMMUNICATION -> "in communication"
+        else -> "mode $mode"
+    }
+
+    private fun isMessage(n: Notification, summaryToo: Boolean = false): Boolean {
+        if (!summaryToo && n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
+        if (n.flags and (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE) != 0) return false
         return n.category !in setOf(Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_PROGRESS, Notification.CATEGORY_SERVICE,
             Notification.CATEGORY_SYSTEM, Notification.CATEGORY_NAVIGATION, Notification.CATEGORY_STOPWATCH,
             Notification.CATEGORY_LOCATION_SHARING, Notification.CATEGORY_CALL, Notification.CATEGORY_MISSED_CALL)
@@ -236,5 +343,7 @@ class AlertListener : NotificationListenerService() {
     private companion object {
         /** System call screens that post the ringing notification for the built-in phone app. */
         val CALL_SCREENS = setOf("com.android.incallui", "com.android.server.telecom")
+        /** How long a lone group summary waits for a message of its group before it counts as one. */
+        const val SUMMARY_WAIT_MS = 2_000L
     }
 }

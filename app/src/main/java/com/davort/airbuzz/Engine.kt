@@ -289,6 +289,10 @@ class Engine(private val app: Context) {
     private class EndedCall(val callFrom: String, val entryTime: Long, val start: Long, val at: Long)
     private var endedCall: EndedCall? = null
 
+    /** The newest call's row and when its notification went, so a missed-call notification just after can mark it. */
+    private class LastCall(val pkg: String, val entryTime: Long, var endedAt: Long = 0L)
+    private var lastCall: LastCall? = null
+
     /** An incoming call notification from [pkg], identified by its notification [key]. */
     fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment, postedAt: Long) {
         if (running?.ringKey == key || queue.any { it.ringKey == key } || waiting.any { it.ringKey == key }) return
@@ -309,14 +313,18 @@ class Engine(private val app: Context) {
             "${posted(moment, postedAt)}): ${outcome(o)}" +
             (if (o == Outcome.Buzz) Rules.quietReason(settings, moment)?.let { " (rings anyway: $it)" } ?: "" else ""))
         when (o) {
-            is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
+            is Outcome.Skip -> {
+                log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
+                lastCall = LastCall(pkg, moment.nowMs)
+            }
             else -> {
                 // The same call shown again just after its notification went: continue its row rather than add one.
                 val entryTime = again?.entryTime ?: moment.nowMs
                 if (again != null) {
                     note("$appLabel showed the same call again; continuing it")
-                    log.updateLast({ it.time == entryTime && it.kind == Kind.CALL }) { it.copy(result = Result.BUZZED, reason = null) }
+                    log.updateLast({ it.time == entryTime && it.kind == Kind.CALL }) { it.copy(result = Result.BUZZED, reason = null, missed = false) }
                 } else log.add(Entry(entryTime, Kind.CALL, pkg, appLabel, who, caller.number, Result.BUZZED))
+                lastCall = LastCall(pkg, entryTime)
                 bandState.value = bandState.value.copy(ringingWho = who)
                 Notifications.showRinging(app, who)
                 val start = again?.start ?: now
@@ -341,12 +349,25 @@ class Engine(private val app: Context) {
     }
 
     /** The call notification [key] went away or was answered. */
-    fun onCallEnded(key: String) {
-        note("Call ended")
+    fun onCallEnded(key: String, why: String = "") {
+        note("Call ended$why")
+        lastCall?.let { if (it.endedAt == 0L) it.endedAt = SystemClock.elapsedRealtime() }
         if (running?.ringKey == key) band.stopRing()
         queue.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
         waiting.removeAll { job -> (job.ringKey == key).also { if (it) job.done(cancelled()) } }
         keepAwake()
+    }
+
+    /**
+     * A missed-call notification from one of [pkgs]: when the last call's notification went just before, its row says
+     * missed. Google's Phone app posts it about 0.8 s after the call stops ringing (Davor's phone, 26 Nov).
+     */
+    fun onMissedCall(pkgs: Set<String>, appLabel: String) {
+        val c = lastCall ?: return
+        if (c.pkg !in pkgs || c.endedAt == 0L || SystemClock.elapsedRealtime() - c.endedAt > MISSED_AFTER_MS) return
+        lastCall = null
+        note("$appLabel reported the call as missed")
+        log.updateLast({ it.time == c.entryTime && it.kind == Kind.CALL }) { it.copy(missed = true) }
     }
 
     /** Silence from the "Ringing your Fitbit Air" notification. */
@@ -864,6 +885,8 @@ class Engine(private val app: Context) {
         const val RING_RETRY_FOR_MS = 60_000L
         /** How soon after a ring ends a new notification for the same call counts as that call shown again. */
         const val CALL_REPOST_MS = 3_000L
+        /** How soon after a call's notification goes a missed-call notification still belongs to it. */
+        const val MISSED_AFTER_MS = 5_000L
         /**
          * The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. Each try
          * renews it, so a message waiting out a silent spell for [SILENT_MESSAGE_RETRY_FOR_MS] stays awake throughout.

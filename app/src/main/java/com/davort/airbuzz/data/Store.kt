@@ -131,6 +131,8 @@ data class Entry(
     val latencyMs: Long? = null,
     /** The chat's ID, for a message from an app that tags conversations, so "Let <chat> buzz" can add it (#33). */
     val chatId: String? = null,
+    /** A call the phone app reported as missed right after it stopped ringing. */
+    val missed: Boolean = false,
 )
 
 /** A week of alerts, kept in a JSON file in the app's private storage. */
@@ -170,6 +172,7 @@ class ActivityLog(context: Context) {
                 put("why", e.reason ?: JSONObject.NULL); put("c", e.count)
                 put("rang", e.rangMs ?: JSONObject.NULL); put("lat", e.latencyMs ?: JSONObject.NULL)
                 put("chat", e.chatId ?: JSONObject.NULL)
+                if (e.missed) put("miss", true)
             })
         }
         runCatching { file.writeText(a.toString()) }
@@ -186,6 +189,7 @@ class ActivityLog(context: Context) {
                 rangMs = if (o.isNull("rang")) null else o.getLong("rang"),
                 latencyMs = if (o.isNull("lat")) null else o.getLong("lat"),
                 chatId = if (!o.has("chat") || o.isNull("chat")) null else o.getString("chat"),
+                missed = o.optBoolean("miss", false),
             )
         }
     }.getOrDefault(emptyList()).let(::prune)
