@@ -28,6 +28,8 @@ class AlertListener : NotificationListenerService() {
     private val ringing = HashSet<String>()
     /** The last call-diagnostic line per notification key, so a dialer's updates log only when something changes. */
     private val callShape = HashMap<String, String>()
+    /** Why a chosen app's notification last didn't count as a new message, per key, so each reason logs once. */
+    private val dropped = HashMap<String, String>()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
@@ -47,12 +49,14 @@ class AlertListener : NotificationListenerService() {
             }
             CallState.NONE -> Unit
         }
-        if (!isMessage(n)) return
+        if (!isMessage(n)) { noteDropped(sbn, notMessageReason(n)); return }
         val ex = n.extras
         val text = listOf(ex.getCharSequence(Notification.EXTRA_TITLE), ex.getCharSequence(Notification.EXTRA_TEXT),
             ex.getCharSequence(Notification.EXTRA_BIG_TEXT)).joinToString("\u0000").hashCode()
         val seen = lastText.put(sbn.key, text)
-        if (seen == text || (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)) return
+        if (seen == text) { noteDropped(sbn, "same text as before"); return }
+        if (seen != null && n.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0) { noteDropped(sbn, "a silent update"); return }
+        dropped -= sbn.key
         if (lastText.size > 500) lastText.clear()
         val from = messageFrom(sbn)
         if (from.chatId != null) engine.chatBook.savePhoto(sbn.packageName, from.chatId, chatIcon(n, from.group))
@@ -86,6 +90,7 @@ class AlertListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         lastText -= sbn.key
         callShape -= sbn.key
+        dropped -= sbn.key
         if (ringing.remove(sbn.key)) engine.onCallEnded(sbn.key)
         // Only the user's own dismissals count as seen: apps also remove and repost notifications on their own.
         else if (reason == REASON_CLICK || reason == REASON_CANCEL || reason == REASON_CANCEL_ALL) engine.onMessageDismissed(sbn.key)
@@ -111,13 +116,16 @@ class AlertListener : NotificationListenerService() {
     /**
      * Logs what a call-looking notification carried when it wasn't taken as an incoming call, so a dialer AirBuzz misses
      * can be fixed from a shared log (a OnePlus tester's calls left no trace, 26 Nov). Call-looking: call style, the
-     * call category, or the default phone app. Only technical fields; no caller name or number.
+     * call category, the default phone app, or a system call screen ([CALL_SCREENS]; on OnePlus and OPPO the default
+     * phone app is Contacts, and the ringing notification comes from the in-call screen). Only technical fields; no
+     * caller name or number.
      */
     private fun noteCallShape(sbn: StatusBarNotification, state: CallState) {
         val n = sbn.notification
         val template = n.extras.getString(Notification.EXTRA_TEMPLATE)?.substringAfterLast('$')
         val dialer = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
-        if (template != "CallStyle" && n.category != Notification.CATEGORY_CALL && sbn.packageName != dialer) return
+        if (template != "CallStyle" && n.category != Notification.CATEGORY_CALL && sbn.packageName != dialer &&
+            sbn.packageName !in CALL_SCREENS) return
         val callType = if (template == "CallStyle" && Build.VERSION.SDK_INT >= 31) n.extras.getInt(Notification.EXTRA_CALL_TYPE).toString() else "-"
         val shape = "package ${sbn.packageName}${if (sbn.packageName == dialer) " (default phone app)" else ""}, " +
             "template ${template ?: "none"}, call type $callType, category ${n.category ?: "none"}, " +
@@ -127,6 +135,24 @@ class AlertListener : NotificationListenerService() {
         if (callShape.put(sbn.key, shape) == shape) return
         if (callShape.size > 50) callShape.clear()
         engine.note("Call-like notification not taken as ringing (${state.name.lowercase()}): $shape")
+    }
+
+    /**
+     * Logs once per notification and reason when a chosen app's notification doesn't count as a new message, so a
+     * message that never buzzed leaves a trace (a tester's Reddit chats left none, 26 Nov). Only the app's name.
+     */
+    private fun noteDropped(sbn: StatusBarNotification, why: String) {
+        if (sbn.packageName !in engine.settings.apps) return
+        if (dropped.put(sbn.key, why) == why) return
+        if (dropped.size > 200) dropped.clear()
+        engine.note("Notification from ${appLabel(sbn.packageName)} not counted as a new message: $why")
+    }
+
+    private fun notMessageReason(n: Notification): String = when {
+        n.flags and Notification.FLAG_GROUP_SUMMARY != 0 -> "a group summary"
+        n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0 -> "a foreground service"
+        n.flags and Notification.FLAG_ONGOING_EVENT != 0 -> "ongoing"
+        else -> "category ${n.category}"
     }
 
     private fun caller(n: Notification): Caller {
@@ -206,4 +232,9 @@ class AlertListener : NotificationListenerService() {
         phoneInUse = getSystemService(PowerManager::class.java).isInteractive &&
             !getSystemService(KeyguardManager::class.java).isKeyguardLocked,
     )
+
+    private companion object {
+        /** System call screens that post the ringing notification for the built-in phone app. */
+        val CALL_SCREENS = setOf("com.android.incallui", "com.android.server.telecom")
+    }
 }
