@@ -16,7 +16,7 @@ Make your Google Fitbit Air vibrate for the calls and notifications you pick.
 
 Your Google Fitbit Air tracks your sleep, steps and heart rate. It just doesn't buzz when Mum calls. AirBuzz fixes that.
 
-Pick the people whose calls should ring your Fitbit Air, and the apps whose notifications should make it vibrate, such as texts, WhatsApp or Telegram. Calls buzz every second until you answer. Tested with Truecaller and Signal; some phones' own phone apps, such as OnePlus's, aren't recognised yet. Twenty messages in fifteen seconds buzz once. Everything else stays on your phone: no deals, no likes, no delivery updates.
+Pick the people whose calls should ring your Fitbit Air, and the apps whose notifications should make it vibrate, such as texts, WhatsApp or Telegram. Calls buzz every second until you answer. Tested with Google's Phone app, Truecaller and Signal; some phones' own phone apps, such as OnePlus's, aren't recognised yet. Twenty messages in fifteen seconds buzz once. Everything else stays on your phone: no deals, no likes, no delivery updates.
 
 Stay quiet at night, in Do Not Disturb, or while you're using the phone. The people you choose can still get through.
 

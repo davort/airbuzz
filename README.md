@@ -97,7 +97,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 
 ## What it does
 
-- **Calls**, from apps that post Android's incoming-call notification (confirmed with Truecaller and Signal): the Fitbit Air buzzes every second until you answer, decline or press Silence, for up to 60 s. People who ring is Anyone (the default for new installs), Contacts, or Chosen people. Quiet times and Pause silence calls too, except from people in Stay quiet's "Let some people ring anyway" list, which is off and empty until you fill it. Known issue: some phones' own phone apps, such as OnePlus Contacts on OxygenOS 16, post a ringing notification AirBuzz doesn't recognise yet, so their calls don't buzz; WhatsApp calls are untested.
+- **Calls**, from apps that post Android's incoming-call notification (confirmed with Google's Phone app, Truecaller and Signal): the Fitbit Air buzzes every second until you answer, decline or press Silence, for up to 60 s. People who ring is Anyone (the default for new installs), Contacts, or Chosen people. Quiet times and Pause silence calls too, except from people in Stay quiet's "Let some people ring anyway" list, which is off and empty until you fill it. Known issue: some phones' own phone apps, such as OnePlus Contacts on OxygenOS 16, post a ringing notification AirBuzz doesn't recognise yet, so their calls don't buzz; WhatsApp calls are untested.
 - **Messages** from chosen apps: one, two or three taps. Messages from the same app within 15 s share one buzz.
 - **Stay quiet** at night and in Do Not Disturb (both on by default), and while you use the phone (off by default).
 - **Activity**: the last three alerts on Home and a week of history, each with what AirBuzz did and why.
