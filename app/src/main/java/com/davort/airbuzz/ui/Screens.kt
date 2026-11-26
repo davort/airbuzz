@@ -715,9 +715,12 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String
     }
 }
 
-/** Who or what an ignored alert came from, and why, as (name, reason). */
+/**
+ * Who or what an ignored alert came from, and why, as (name, reason). It is also the Ignored tab's grouping key, so one
+ * person's missed calls get their own row instead of hiding among their other calls.
+ */
 private fun source(e: Entry): Pair<String, String> =
-    if (e.kind == Kind.CALL) (e.who ?: "Unknown caller") to "Call · ${reasonLabel(e)}"
+    if (e.kind == Kind.CALL) (e.who ?: "Unknown caller") to "${if (e.missed) "Missed call" else "Call"} · ${reasonLabel(e)}"
     // A chat that wasn't ticked is its own row, as "WhatsApp · Design team", so a tap opens that app’s chats.
     else if (e.reason == "chat not chosen" && e.who != null) "${e.appLabel} · ${e.who}" to reasonLabel(e)
     else e.appLabel to reasonLabel(e)
