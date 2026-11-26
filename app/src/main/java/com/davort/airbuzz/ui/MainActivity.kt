@@ -346,7 +346,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 val interaction = remember { MutableInteractionSource() }
                 val pressed = rememberHeldPress(interaction)
                 val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(if (pressed) 100 else 200, easing = Motion.Out), label = "press")
-                val panel by animateColorAsState(if (pressed) a.tintPressed else a.tintPressed.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
+                val panel by animateColorAsState(if (pressed) a.tintStrong else a.tintStrong.copy(alpha = 0f), tween(if (pressed) 100 else 200), label = "panel")
                 val nudge = remember { Animatable(0f) }
                 if (!s.activityHinted) LaunchedEffect(Unit) {
                     delay(1_000)
@@ -360,7 +360,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                     .graphicsLayer { scaleX = scale; scaleY = scale }
                     .drawBehind {
                         val x = 10.dp.toPx(); val y = 6.dp.toPx()
-                        drawRoundRect(panel, Offset(-x, -y), Size(size.width + 2 * x, size.height + 2 * y), CornerRadius(12.dp.toPx()))
+                        drawRoundRect(panel, Offset(-x, -y), Size(size.width + 2 * x, size.height + 2 * y), CornerRadius(Radius.NOTE.toPx()))
                     }
                     .clickable(interaction, indication = null, onClickLabel = "Open Activity") { scope.launch { delay(100); go(Screen.ACTIVITY) } },
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -563,7 +563,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
 @Composable
 fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String, missed: String? = null, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(Radius.CARD)
     val swap = tween<Color>(220, easing = Motion.Out)
     val border by animateColorAsState(if (problem != null) a.warn else a.line, swap, label = "border")
     val tint by animateColorAsState(if (problem != null) a.warn else a.accent, swap, label = "glow")

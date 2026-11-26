@@ -20,7 +20,7 @@ class ThemeTest {
         for ((dark, accents) in listOf(false to LightAccents, true to DarkAccents)) for (acc in accents) {
             val c = airColors(dark, acc.color)
             val where = "${acc.name} in ${if (dark) "dark" else "light"}"
-            assertTrue("pressed blank, $where: ${ratio(c.accent, c.tintPressed)}", ratio(c.accent, c.tintPressed) >= 4.5)
+            assertTrue("pressed blank, $where: ${ratio(c.accent, c.tintStrong)}", ratio(c.accent, c.tintStrong) >= 4.5)
             assertTrue("grey text, $where: ${ratio(c.muted, c.bg)}", ratio(c.muted, c.bg) >= 4.5)
             assertTrue("grey text on cards, $where: ${ratio(c.muted, c.surface)}", ratio(c.muted, c.surface) >= 4.5)
             assertTrue("warning text on cards, $where: ${ratio(c.warn, c.surface)}", ratio(c.warn, c.surface) >= 4.5)

@@ -460,7 +460,7 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
         if (s.callMode == CallMode.CHOSEN) {
             s.people.forEach { p ->
                 rows += { GroupRow(vertical = 10.dp) {
-                    Avatar(p.name)
+                    PersonPhoto(p)
                     TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
                 } }
             }

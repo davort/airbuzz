@@ -1,5 +1,20 @@
 package com.davort.airbuzz.ui
 
+import android.content.ContentUris
+import android.graphics.BitmapFactory
+import android.provider.ContactsContract
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.LineBreak
+import com.davort.airbuzz.data.ChatBook
+import com.davort.airbuzz.rules.Person
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.compositeOver
 
 import androidx.compose.runtime.setValue
@@ -289,7 +304,7 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                             .graphicsLayer { scaleX = scale; scaleY = scale }
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (pressed || part.open) a.tintPressed else a.tint)
+                            .background(if (pressed || part.open) a.tintStrong else a.tint)
                             .clickable(interaction, indication = null) { scope.launch { delay(100); part.onClick() } }
                             .clearAndSetSemantics {
                                 role = Role.Button
@@ -328,7 +343,7 @@ fun AirSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier 
  * Segmented choice that filters or switches a view, such as Activity's All, Buzzed and Ignored or a chat sheet's
  * tabs. The options sit on a 48 dp track; the selected one is a green tint with its label in the accent, which slides
  * to a new choice (Davor, 24 Nov). Every label keeps its weight and stays centred, so switching never moves one.
- * [PillChoice] is the ink-filled version for choices that decide what will happen. The track is the page colour on a
+ * It is the one tab control everywhere, People who ring too (launch polish, 25 Nov). The track is the page colour on a
  * sheet; on a page, pass the surface colour so it shows. No press ripple: the sliding pill is the feedback, and a grey
  * press under it read as a second, waiting selection (Davor, 26 Nov).
  */
@@ -340,40 +355,13 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
     BoxWithConstraints(modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(track).padding(4.dp)) {
         val gap = 4.dp
         val w = (maxWidth - gap * (options.size - 1)) / options.size
-        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(if (a.dark) a.tint else a.accent.copy(alpha = 0.20f).compositeOver(a.surface)))
+        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(if (a.dark) a.tint else a.tintStrong))
         Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
             options.forEachIndexed { i, (value, label) ->
                 val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
                 Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, interactionSource = null, indication = null, role = Role.RadioButton) { onSelect(value) },
                     contentAlignment = Alignment.Center) {
                     Text(label, style = Type.smallMedium, color = lerp(a.muted, a.accent, on), maxLines = 1, softWrap = false)
-                }
-            }
-        }
-    }
-}
-
-/**
- * A choice that decides what will happen, such as who can ring (Davor, 15 Nov). The options sit on a track and the
- * chosen one is filled in ink like the main buttons, so it reads as a decision rather than a filter. The fill slides
- * to a new choice, and the 48 dp track keeps every option a full tap target.
- */
-@Composable
-fun <T> PillChoice(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    val a = LocalAirColors.current
-    val index = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
-    val at by animateFloatAsState(index.toFloat(), tween(220, easing = Motion.InOut), label = "choice")
-    BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(a.bg).padding(4.dp)) {
-        val gap = 4.dp
-        val w = (maxWidth - gap * (options.size - 1)) / options.size
-        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(a.ink))
-        Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-            options.forEachIndexed { i, (value, label) ->
-                val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
-                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, interactionSource = null, indication = null, role = Role.RadioButton) { onSelect(value) },
-                    contentAlignment = Alignment.Center) {
-                    Text(label, style = if (value == selected) Type.smallMedium else Type.small, color = lerp(a.muted, a.onInk, on),
-                        maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -394,7 +382,7 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
         listOf(false to "Gentle", true to "Strong").forEach { (value, label) ->
             val on = value == strong
             val shown by animateFloatAsState(if (on) 1f else 0f, tween(150, easing = Motion.Out), label = "strength")
-            val shape = RoundedCornerShape(16.dp)
+            val shape = RoundedCornerShape(Radius.NOTE)
             val ring = lerp(a.muted, a.accent, shown)
             // 0..1 over 1.4 s (Davor, 15 Nov: twice as slow as 0.6.31); it rests at 1 (nothing playing) and plays only when this tile becomes the chosen one.
             val play = remember { Animatable(1f) }
@@ -458,7 +446,7 @@ fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fille
     val shape = CircleShape
     Box(
         modifier.height(if (small) 40.dp else 56.dp).alpha(if (enabled) 1f else 0.38f).clip(shape)
-            .background(if (filled) a.ink else if (a.dark) a.tint else a.tintPressed)
+            .background(if (filled) a.ink else if (a.dark) a.tint else a.tintStrong)
             .clickable(enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = if (small) 16.dp else 24.dp),
         contentAlignment = Alignment.Center,
@@ -467,11 +455,11 @@ fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, fille
     }
 }
 
-/** An accent text action with a leading glyph, such as "+ Add people", 56 dp tall so it is an easy target. */
+/** An accent text action with a leading glyph, such as "+ Add people": one 48 dp row everywhere (launch polish, 25 Nov). */
 @Composable
 fun TextAction(text: String, onClick: () -> Unit, glyph: Glyph = Glyph.PLUS, curve: Curve? = null) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().height(56.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(48.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         if (curve != null) CurveIcon(curve, 22.dp, a.accent) else GlyphIcon(glyph, 22.dp, a.accent)
         Spacer(Modifier.width(12.dp))
         Text(text, style = Type.bodyMedium, color = a.accent)
@@ -496,11 +484,55 @@ fun Mark(on: Boolean, radio: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun Dot(color: Color, size: Dp = 8.dp) = Box(Modifier.size(size).clip(CircleShape).background(color))
 
+/**
+ * A person's 40 dp circle, filled like a chat row's: their phone-book photo when Contacts is already allowed, otherwise
+ * their first letter (launch polish, 25 Nov). AirBuzz never asks for Contacts here; the chat sheet is where it asks.
+ */
 @Composable
-fun Avatar(name: String) {
+fun PersonPhoto(p: Person) {
     val a = LocalAirColors.current
-    Box(Modifier.size(40.dp).clip(CircleShape).border(1.dp, a.line, CircleShape), contentAlignment = Alignment.Center) {
-        Text(name.take(1).uppercase(), style = Type.bodyMedium, color = a.ink)
+    val context = LocalContext.current
+    val photo by produceState<ImageBitmap?>(null, p) { value = withContext(Dispatchers.IO) { personPhoto(context, p)?.asImageBitmap() } }
+    Box(Modifier.size(40.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
+        val img = photo
+        if (img != null) Image(img, null, Modifier.size(40.dp), contentScale = ContentScale.Crop)
+        else Text(p.name.take(1).uppercase(), style = Type.bodyMedium, color = a.ink)
+    }
+}
+
+/** The phone-book photo of [p], found by number, or by name for someone matched by name; null without Contacts. */
+private fun personPhoto(context: android.content.Context, p: Person): android.graphics.Bitmap? {
+    if (!ChatBook.hasContacts(context)) return null
+    return runCatching {
+        val r = context.contentResolver
+        val id = if (p.number != null) r.query(
+            android.net.Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(p.number)),
+            arrayOf(ContactsContract.PhoneLookup._ID), null, null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+        else r.query(ContactsContract.Contacts.CONTENT_URI, arrayOf(ContactsContract.Contacts._ID),
+            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} = ? COLLATE NOCASE", arrayOf(p.name), null,
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+        id?.let { ContactsContract.Contacts.openContactPhotoInputStream(r, ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, it)) }
+            ?.use(BitmapFactory::decodeStream)
+    }.getOrNull()
+}
+
+/**
+ * A note in a box (launch polish, 25 Nov): an icon, a quiet sentence, and optionally an accent link line with a chevron,
+ * which makes the whole note one button. 16 dp corners and padding, on the page colour.
+ */
+@Composable
+fun Note(curve: Curve, text: AnnotatedString, link: String? = null, onClick: (() -> Unit)? = null) {
+    val a = LocalAirColors.current
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.NOTE)).background(a.bg)
+        .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier).padding(16.dp),
+        verticalAlignment = if (link != null) Alignment.CenterVertically else Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CurveIcon(curve, 20.dp, a.muted, 1.8f)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(text, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
+            if (link != null) Text(link, style = Type.smallMedium, color = a.accent)
+        }
+        if (onClick != null) GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
     }
 }
 
@@ -536,8 +568,8 @@ fun Rhythm(taps: Int, ring: Boolean = false) {
 // Containers.
 
 internal fun groupShape(i: Int, n: Int): RoundedCornerShape {
-    val top = if (i == 0) 24.dp else 4.dp
-    val bottom = if (i == n - 1) 24.dp else 4.dp
+    val top = if (i == 0) Radius.CARD else 4.dp
+    val bottom = if (i == n - 1) Radius.CARD else 4.dp
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
 
@@ -565,7 +597,7 @@ fun GroupRow(onClick: (() -> Unit)? = null, vertical: Dp = 14.dp, content: @Comp
 @Composable
 fun Card(modifier: Modifier = Modifier, gap: Dp = 10.dp, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(LocalAirColors.current.surface)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.CARD)).background(LocalAirColors.current.surface)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(gap), content = content,

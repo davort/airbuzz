@@ -361,7 +361,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
                     Gap(Space.HINT)
                     recent.forEachIndexed { i, p ->
                         LineRow(i == 0) {
-                            Avatar(p.name)
+                            PersonPhoto(p)
                             TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
                             Pill("Add", { engine.store.update { st -> st.copy(people = st.people + p) } }, filled = false, small = true)
                             IconAction("Hide ${p.name}", { engine.store.update { st -> st.copy(hiddenCallers = st.hiddenCallers + (p.number ?: p.name)) } }) {
@@ -402,7 +402,7 @@ fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSe
     val a = LocalAirColors.current
     Column {
         // Widest first, as Anyone is the default: missing a call that mattered is worse than an extra buzz (Davor, 26 Nov).
-        PillChoice(listOf(CallMode.ANYONE to "Anyone", CallMode.CONTACTS to "Contacts", CallMode.CHOSEN to "Chosen"), mode, onSelect)
+        Seg(listOf(CallMode.ANYONE to "Anyone", CallMode.CONTACTS to "Contacts", CallMode.CHOSEN to "Chosen"), mode, onSelect = onSelect)
         val names = people.map { it.name }
         // A call always rings the phone; the caption says which calls won't also ring the Fitbit Air (Davor, 15 Nov).
         val other = "Other calls will ring only your\u00A0phone."
@@ -443,24 +443,16 @@ fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSe
 private fun QuietNote(s: Settings, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val who = ringsAnyway(s)
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(a.bg).clickable(role = Role.Button, onClick = onClick)
-        .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        CurveIcon(Curve.MOON, 20.dp, a.muted, 1.8f)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(if (who == null) "Quiet times silence calls too." else "Only $who ${ring(ringingAnyway(s).size)} in quiet times.", style = Type.small, color = a.muted)
-            Text(if (who == null) "Let someone ring anyway" else "Change in Stay quiet", style = Type.smallMedium, color = a.accent)
-        }
-        GlyphIcon(Glyph.CHEVRON, 18.dp, a.muted)
-    }
+    Note(Curve.MOON, androidx.compose.ui.text.AnnotatedString(if (who == null) "Quiet times silence calls too." else "Only $who ${ring(ringingAnyway(s).size)} in quiet times."),
+        link = if (who == null) "Let someone ring anyway" else "Change in Stay quiet", onClick = onClick)
 }
 
 fun ring(people: Int) = if (people == 1) "rings" else "ring"
 
-/** A 40 dp round tap target around a small icon, such as a bin. */
+/** A 48 dp round tap target around a small icon, such as a bin. */
 @Composable
 fun IconAction(description: String, onClick: () -> Unit, icon: @Composable () -> Unit) {
-    Box(Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = description, onClick = onClick)
+    Box(Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = description, onClick = onClick)
         .semantics { contentDescription = description }, contentAlignment = Alignment.Center) { icon() }
 }
 
@@ -515,7 +507,7 @@ fun PeopleRows(people: List<Person>, topLine: Boolean = true, onChange: (List<Pe
                     removed.add(p)
                     onChange(people - p)
                 }) {
-                    Avatar(p.name)
+                    PersonPhoto(p)
                     TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
                 }
             }
@@ -565,7 +557,7 @@ private fun SwipeToRemove(
                 val shown = -dx
                 if (shown > 0f) {
                     val inset = 4.dp.toPx()
-                    drawRoundRect(a.tintPressed, Offset(size.width - shown, inset), Size(shown, size.height - 2 * inset),
+                    drawRoundRect(a.tintStrong, Offset(size.width - shown, inset), Size(shown, size.height - 2 * inset),
                         CornerRadius(minOf(14.dp.toPx(), shown / 2)))
                 }
             })
@@ -626,8 +618,8 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
         exit = shrinkVertically(tween(240, easing = Motion.InOut)) + fadeOut(tween(160, easing = Motion.In))) {
         // The same height as a person's row: an empty 1 dp where its hairline was, then 4 + 6 dp around the content where
         // the row has 10 dp, so a swiped row turns into this one without moving.
-        Row(Modifier.fillMaxWidth().padding(top = 1.dp).padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(a.tint)
-            .drawBehind { drawRect(a.tintPressed, size = size.copy(width = size.width * left.value)) }
+        Row(Modifier.fillMaxWidth().padding(top = 1.dp).padding(vertical = 4.dp).clip(RoundedCornerShape(Radius.NOTE)).background(a.tint)
+            .drawBehind { drawRect(a.tintStrong, size = size.copy(width = size.width * left.value)) }
             .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { CurveIcon(Curve.BIN, 20.dp, a.accent, 1.8f) }
@@ -635,11 +627,9 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
                 Text(p.name, style = Type.bodyMedium, color = a.ink, maxLines = 1)
                 Label("Removed", color = a.accent)
             }
-            val shape = CircleShape
-            Box(Modifier.height(40.dp).clip(shape).background(a.surface).border(1.dp, a.accent, shape)
-                .clickable(role = Role.Button, onClickLabel = "Undo removing ${p.name}", onClick = onUndo),
-                contentAlignment = Alignment.Center) {
-                Text("Undo", style = Type.smallMedium, color = a.accent, modifier = Modifier.padding(horizontal = 18.dp))
+            // The one secondary button (launch polish, 25 Nov), on the surface so it shows on the tinted row.
+            Box(Modifier.clip(CircleShape).background(a.surface)) {
+                Pill("Undo", onUndo, Modifier.semantics { contentDescription = "Undo removing ${p.name}" }, filled = false, small = true)
             }
         }
     }
@@ -649,7 +639,7 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
 @Composable
 fun SearchField(query: String, hint: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
         .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         CurveIcon(Curve.SEARCH, 18.dp, a.muted)
         Spacer(Modifier.width(12.dp))
@@ -696,7 +686,7 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
                     } else TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
                     // Every row keeps its checkbox in the same 48 dp box, so ticking WhatsApp on or off doesn't change
                     // the row's height (Davor, 24 Nov). The box sits flush with the row's end, like the other marks.
-                    Box(Modifier.offset(x = 13.dp).size(48.dp).clip(RoundedCornerShape(12.dp))
+                    Box(Modifier.offset(x = 13.dp).size(48.dp).clip(CircleShape)
                         .then(if (chats) Modifier.clickable(role = Role.Checkbox, onClickLabel = "Stop ${app.label} buzzing", onClick = toggle) else Modifier),
                         contentAlignment = Alignment.Center) { Mark(app.pkg in s.apps, radio = false) }
                 }
@@ -813,7 +803,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             Gap(Space.HINT)
             waiting.forEachIndexed { i, p ->
                 LineRow(i == 0) {
-                    Avatar(p.name)
+                    PersonPhoto(p)
                     TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
                     Pill("Allow", { update { st -> st.copy(people = st.people + p) } }, filled = false, small = true)
                     IconAction("Remove ${p.name}", { update { st -> st.copy(ringAnywayPeople = st.ringAnywayPeople - p) } }) {
@@ -826,7 +816,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             if (rest.isNotEmpty()) { Label("From People who ring"); Gap(Space.HINT) }
             rest.forEachIndexed { i, p ->
                 LineRow(i == 0) {
-                    Avatar(p.name)
+                    PersonPhoto(p)
                     TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } }
                     Pill("Add", { update { st -> st.copy(ringAnywayPeople = st.ringAnywayPeople + p) } }, filled = false, small = true)
                 }

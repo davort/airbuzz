@@ -119,13 +119,10 @@ private fun isChosen(chosen: List<Chat>, o: ChatOption) = chosen.any {
 fun RingersNote(s: Settings) {
     if (s.callMode != CallMode.CHOSEN || s.people.isEmpty()) return
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(a.bg).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.padding(top = 1.dp)) { CurveIcon(Curve.PHONE, 18.dp, a.muted, 1.8f) }
-        Text(buildAnnotatedString {
-            withStyle(SpanStyle(color = a.ink, fontWeight = FontWeight.Medium)) { append(summarize(s.people.map { it.name }, "")) }
-            append(" from People who ring always buzz when they message you directly, in any\u00A0app.")
-        }, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
-    }
+    Note(Curve.PHONE, buildAnnotatedString {
+        withStyle(SpanStyle(color = a.ink, fontWeight = FontWeight.Medium)) { append(summarize(s.people.map { it.name }, "")) }
+        append(" from People who ring always buzz when they message you directly, in any\u00A0app.")
+    })
 }
 
 private enum class ChatTab { ALL, PEOPLE, GROUPS }
@@ -302,7 +299,7 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                         if (contactsCard || sparse) Gap(12)
                         // The action's row is 48 dp for the finger; its text sits 24 dp under the content above.
                         if (typing) TypeChat(if (groups) "Group\u2019s name" else "Person\u2019s name") { name -> typing = false; add(name) }
-                        else ChatAction(if (groups) "Type a group\u2019s name" else "Type a person\u2019s name") { typing = true }
+                        else TextAction(if (groups) "Type a group\u2019s name" else "Type a person\u2019s name", { typing = true })
                         if (sparse) Text("Spell it the way $app shows it. Upper or lower case both\u00A0work.",
                             style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted,
                             modifier = Modifier.padding(start = 34.dp).layout { m, c ->
@@ -310,10 +307,10 @@ fun ChatsSheet(engine: Engine, s: Settings, pkg: String, onClose: () -> Unit) {
                                 val up = 8.dp.roundToPx()
                                 layout(p.width, p.height - up) { p.place(0, -up) }
                             })
-                        if (canList && s.contactsNotNow) ChatAction("List contacts who use $app", Curve.PERSON) {
+                        if (canList && s.contactsNotNow) TextAction("List contacts who use $app", {
                             fromLink = true
                             askContacts.launch(Manifest.permission.READ_CONTACTS)
-                        }
+                        }, curve = Curve.PERSON)
                     }
                 }
                 if (note) {
@@ -345,17 +342,6 @@ private fun AllMessagesPanel(app: String, kept: Boolean) {
     }
 }
 
-/** An accent action in the chat sheet: a 48 dp row whose text sits 12 dp in from its top and bottom. */
-@Composable
-private fun ChatAction(text: String, curve: Curve? = null, onClick: () -> Unit) {
-    val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().height(48.dp).clickable(role = Role.Button, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-        if (curve != null) CurveIcon(curve, 22.dp, a.accent) else GlyphIcon(Glyph.PLUS, 22.dp, a.accent)
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = Type.bodyMedium, color = a.accent)
-    }
-}
-
 /**
  * A chat with its photo, when it last wrote, and its checkbox. The photo is the contact's own or the picture the
  * chat's notification showed (#33); without one, a person shows their first letter and a group the people mark.
@@ -381,7 +367,7 @@ private fun ChatRow(o: ChatOption, on: Boolean, sub: String?, first: Boolean, wr
 @Composable
 private fun ContactsCard(app: String, onNotNow: () -> Unit, onShow: () -> Unit) {
     val a = LocalAirColors.current
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(a.bg).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 16.dp),
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.CARD)).background(a.bg).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("List your contacts who use\u00A0$app?", style = Type.bodyMedium.copy(lineBreak = LineBreak.Heading), color = a.ink)
         Text("Then you can pick people before they message you. Your contacts stay on this phone. AirBuzz has no internet access, so it can\u2019t send them\u00A0anywhere.",
@@ -401,7 +387,7 @@ private fun ContactsCard(app: String, onNotNow: () -> Unit, onShow: () -> Unit) 
 private fun SparseCard(app: String, groups: Boolean) {
     val a = LocalAirColors.current
     Column(Modifier.fillMaxWidth().drawBehind {
-        val r = 24.dp.toPx()
+        val r = Radius.CARD.toPx()
         drawRoundRect(a.outline, cornerRadius = CornerRadius(r), style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))))
     }.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(if (groups) "Groups show up here after they message\u00A0you" else "People show up here after they message\u00A0you",
@@ -420,7 +406,7 @@ private fun TypeChat(hint: String, onDone: (String) -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, a.outline, RoundedCornerShape(22.dp))
+        Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
             .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
             if (name.isEmpty()) Text(hint, style = Type.body, color = a.muted)
             BasicTextField(name, { name = it }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,

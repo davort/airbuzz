@@ -335,8 +335,8 @@ fun AccentCard(dark: Boolean, selected: Int, onSelect: (Int) -> Unit) {
         // The preview is drawn in that mode's own colours, so both accents can be judged from either mode.
         val preview = airColors(dark, chosen.color)
         CompositionLocalProvider(LocalAirColors provides preview) {
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(preview.bg)
-                .border(1.dp, preview.line, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.NOTE)).background(preview.bg)
+                .border(1.dp, preview.line, RoundedCornerShape(Radius.NOTE)).padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Sentence(listOf(Part.Words("When"), Part.Blank("Preview", "Mum and Ana") {}, Part.Words("call")))
             }
         }
@@ -573,7 +573,7 @@ fun Timeline(steps: List<Step>, liveMs: Long?, endMs: Long?, failed: Boolean) {
             val w = size.width
             fun x(ms: Long) = (ms / SPAN_MS.toFloat()).coerceIn(0f, 1f) * w
             // Light mode needs the stronger pair to show both bands on its pale background.
-            val (excellent, good) = if (a.dark) a.tint to a.tint.copy(alpha = 0.5f) else a.tintPressed to a.tint
+            val (excellent, good) = if (a.dark) a.tint to a.tint.copy(alpha = 0.5f) else a.tintStrong to a.tint
             drawRoundRect(excellent, Offset(0f, 4.dp.toPx()), Size(x(EXCELLENT_MS), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
             drawRoundRect(good, Offset(x(EXCELLENT_MS), 4.dp.toPx()), Size(x(GOOD_MS) - x(EXCELLENT_MS), 16.dp.toPx()), CornerRadius(2.dp.toPx()))
             drawRect(a.line, Offset(0f, 11.dp.toPx()), Size(w, 2.dp.toPx()))

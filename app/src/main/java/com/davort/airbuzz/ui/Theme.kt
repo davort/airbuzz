@@ -1,5 +1,6 @@
 package com.davort.airbuzz.ui
 
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -72,7 +73,8 @@ data class AirColors(
     /** A blank at rest: the accent at 10% (light) or 16% (dark) over the surface. */
     val tint: Color,
     /** A pressed or open blank: 18% or 24%, the most that keeps blank text at 4.5:1 for every swatch. */
-    val tintPressed: Color,
+    /** The stronger accent tint: the selected tab, secondary buttons, a pressed blank, the Undo row's timer. */
+    val tintStrong: Color,
 )
 
 val LocalAirColors = staticCompositionLocalOf { airColors(false, LightAccents[0].color) }
@@ -101,12 +103,12 @@ fun airColors(dark: Boolean, accent: Color): AirColors {
         dark = true, bg = Color(0xFF0E0F10).h(1f), surface = surface, ink = Color(0xFFECEDF0).h(0.35f),
         muted = Color(0xFF9A9DA3).h(0.6f), line = Color(0xFF2A2B2E).h(0.9f), outline = Color(0xFF595C61).h(0.7f), selected = Color(0xFF313236).h(0.9f),
         context = Color(0xFF3D3F43).h(0.8f), onInk = Color(0xFF0E0F10).h(1f), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A), warnTint = Color(0xFF3F3221),
-        accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.24f).compositeOver(surface),
+        accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintStrong = accent.copy(alpha = 0.24f).compositeOver(surface),
     ) else AirColors(
         dark = false, bg = Color(0xFFF1F2F4).h(1f), surface = surface, ink = Color(0xFF121418).h(0.35f),
         muted = Color(0xFF62666E).h(0.6f), line = Color(0xFFDFE1E5).h(0.9f), outline = Color(0xFFAFB3BA).h(0.7f), selected = Color(0xFFE4E6EA).h(0.9f),
         context = Color(0xFFC6C9CF).h(0.8f), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFA35E00), warnTint = Color(0xFFF6EEE0),
-        accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
+        accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintStrong = accent.copy(alpha = 0.18f).compositeOver(surface),
     )
 }
 
@@ -141,6 +143,12 @@ object Space {
     const val INLINE = 8
     const val TIGHT = 16
     const val SECTION = 24
+}
+
+/** Corner radii (launch polish, 25 Nov): notes and rows that tint, cards and grouped lists; pills and fields are round. */
+object Radius {
+    val NOTE = 16.dp
+    val CARD = 24.dp
 }
 
 object Type {
