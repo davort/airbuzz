@@ -360,7 +360,7 @@ class Engine(private val app: Context) {
 
     /**
      * A missed-call notification from one of [pkgs]: when the last call's notification went just before, its row says
-     * missed. Google's Phone app posts it about 0.8 s after the call stops ringing (Davor's phone, 26 Nov).
+     * missed. Google's Phone app posts it 0.1–1.3 s after the call stops ringing, WhatsApp 0.1–8.6 s (Davor's phone, 26 Nov).
      */
     fun onMissedCall(pkgs: Set<String>, appLabel: String) {
         val c = lastCall ?: return
@@ -886,7 +886,7 @@ class Engine(private val app: Context) {
         /** How soon after a ring ends a new notification for the same call counts as that call shown again. */
         const val CALL_REPOST_MS = 3_000L
         /** How soon after a call's notification goes a missed-call notification still belongs to it. */
-        const val MISSED_AFTER_MS = 5_000L
+        const val MISSED_AFTER_MS = 15_000L
         /**
          * The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. Each try
          * renews it, so a message waiting out a silent spell for [SILENT_MESSAGE_RETRY_FOR_MS] stays awake throughout.
