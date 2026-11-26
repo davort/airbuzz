@@ -197,7 +197,9 @@ class Engine(private val app: Context) {
      */
     private class Job(
         val cmd: BandCommand,
-        val ringKey: String? = null,
+        var ringKey: String? = null,
+        /** For a ring, its app and caller, so a phone app re-posting the same call continues it. */
+        val callFrom: String? = null,
         val giveUpAt: Long = 0L,
         /** What the alert was, such as "call", for the step log's timing line; null for Test buzz. */
         val what: String? = null,
@@ -283,10 +285,25 @@ class Engine(private val app: Context) {
 
     // Calls
 
+    /** A ring that just ended, kept [CALL_REPOST_MS] in case its phone app shows the same call again. */
+    private class EndedCall(val callFrom: String, val entryTime: Long, val start: Long, val at: Long)
+    private var endedCall: EndedCall? = null
+
     /** An incoming call notification from [pkg], identified by its notification [key]. */
     fun onIncomingCall(key: String, pkg: String, appLabel: String, caller: Caller, moment: Moment, postedAt: Long) {
         if (running?.ringKey == key || queue.any { it.ringKey == key } || waiting.any { it.ringKey == key }) return
         val who = caller.name ?: caller.number ?: "Unknown caller"
+        val callFrom = "$pkg\u0000$who"
+        // Some phone apps replace a ringing call's notification with a new one (a Reddit user's phone, 26 Nov): the
+        // ring already under way takes the new key, so one call stays one row and one ring.
+        (listOfNotNull(running) + queue + waiting).firstOrNull { it.ringKey != null && it.callFrom == callFrom }?.let { job ->
+            note("$appLabel showed the same call again; it keeps ringing")
+            job.ringKey = key
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val again = endedCall?.takeIf { it.callFrom == callFrom && now - it.at < CALL_REPOST_MS }
+        endedCall = null
         val o = Rules.decideCall(caller, settings, moment, region)
         note("Call from $appLabel (${if (caller.number != null) "number" else if (caller.name != null) "name only" else "no caller ID"}" +
             "${posted(moment, postedAt)}): ${outcome(o)}" +
@@ -294,21 +311,27 @@ class Engine(private val app: Context) {
         when (o) {
             is Outcome.Skip -> log.add(Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.SKIPPED, o.reason))
             else -> {
-                val entry = Entry(moment.nowMs, Kind.CALL, pkg, appLabel, who, caller.number, Result.BUZZED)
-                log.add(entry)
+                // The same call shown again just after its notification went: continue its row rather than add one.
+                val entryTime = again?.entryTime ?: moment.nowMs
+                if (again != null) {
+                    note("$appLabel showed the same call again; continuing it")
+                    log.updateLast({ it.time == entryTime && it.kind == Kind.CALL }) { it.copy(result = Result.BUZZED, reason = null) }
+                } else log.add(Entry(entryTime, Kind.CALL, pkg, appLabel, who, caller.number, Result.BUZZED))
                 bandState.value = bandState.value.copy(ringingWho = who)
                 Notifications.showRinging(app, who)
-                val start = SystemClock.elapsedRealtime()
+                val start = again?.start ?: now
                 var latency: Long? = null
                 // A ring goes ahead of queued message taps.
-                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS, what = "call",
+                queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, callFrom = callFrom, giveUpAt = start + RING_RETRY_FOR_MS, what = "call",
                     alertAt = start, missTitle = "$who called · your Fitbit Air didn’t ring",
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     Notifications.cancelRinging(app)
                     bandState.value = bandState.value.copy(ringingWho = null)
-                    log.updateLast({ it.time == entry.time && it.kind == Kind.CALL }) {
-                        if (r.taps > 0) it.copy(rangMs = SystemClock.elapsedRealtime() - start, latencyMs = latency)
-                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "answered before the Fitbit Air was reached")
+                    endedCall = EndedCall(callFrom, entryTime, start, SystemClock.elapsedRealtime())
+                    log.updateLast({ it.time == entryTime && it.kind == Kind.CALL }) {
+                        if (r.taps > 0) it.copy(rangMs = SystemClock.elapsedRealtime() - start, latencyMs = latency ?: it.latencyMs)
+                        // AirBuzz only sees the call's notification go, so it can't tell answered from missed or declined.
+                        else if (r.ok) it.copy(result = Result.SKIPPED, reason = "stopped ringing before the Fitbit Air was reached")
                         else it.copy(result = Result.FAILED, reason = r.message)
                     }
                 })
@@ -839,6 +862,8 @@ class Engine(private val app: Context) {
         const val SILENT_LATE_RETRY_MS = 15_000L
         /** A call keeps trying for as long as AirBuzz would ring it, unless it ends first. */
         const val RING_RETRY_FOR_MS = 60_000L
+        /** How soon after a ring ends a new notification for the same call counts as that call shown again. */
+        const val CALL_REPOST_MS = 3_000L
         /**
          * The longest one stretch of [keepAwake] can last: a 60 s ring plus its retries, with room to spare. Each try
          * renews it, so a message waiting out a silent spell for [SILENT_MESSAGE_RETRY_FOR_MS] stays awake throughout.
