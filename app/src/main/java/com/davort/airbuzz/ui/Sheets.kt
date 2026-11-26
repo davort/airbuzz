@@ -398,13 +398,14 @@ fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
 fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSelect: (CallMode) -> Unit) {
     val a = LocalAirColors.current
     Column {
-        PillChoice(listOf(CallMode.CHOSEN to "Chosen", CallMode.CONTACTS to "Contacts", CallMode.ANYONE to "Anyone"), mode, onSelect)
+        // Widest first, as Anyone is the default: missing a call that mattered is worse than an extra buzz (Davor, 26 Nov).
+        PillChoice(listOf(CallMode.ANYONE to "Anyone", CallMode.CONTACTS to "Contacts", CallMode.CHOSEN to "Chosen"), mode, onSelect)
         val names = people.map { it.name }
         // A call always rings the phone; the caption says which calls won't also ring the Fitbit Air (Davor, 15 Nov).
         val other = "Other calls will ring only your\u00A0phone."
         val (before, who, rest) = when (mode) {
             CallMode.CHOSEN -> when (names.size) {
-                0 -> Triple("Only ", "the people you add", other)
+                0 -> Triple("Only ", "the people you add", "Until you add someone, no call will ring it.")
                 1 -> Triple("Only calls from ", names[0], other)
                 2 -> Triple("Only calls from ", "${names[0]} and ${names[1]}", other)
                 // As on Home's Calls rule.

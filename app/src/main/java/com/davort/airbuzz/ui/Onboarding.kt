@@ -447,8 +447,9 @@ private fun ColumnScope.SeeAlerts(next: () -> Unit) {
 private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit) {
     val a = LocalAirColors.current
     val pick = rememberContactPicker(engine)
-    Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls will buzz it every second until you\u00A0answer.") {
+    // Anyone is already chosen, so there is nothing to put off: Next keeps it (Davor, 26 Nov).
+    Step({ StepFoot("Next", next) }) {
+        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls buzz it every second until you answer. You can narrow it down any\u00A0time.") {
             IconCircle(Curve.PHONE)
         }
         // The choice and what it will do share one panel; Chosen's people and Add people continue it (Davor, 15 Nov).
