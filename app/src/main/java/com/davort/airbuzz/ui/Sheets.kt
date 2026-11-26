@@ -139,28 +139,31 @@ import kotlin.math.roundToInt
 data class AppInfo(val pkg: String, val label: String)
 
 /**
- * Messaging and email apps, offered before every other app in onboarding and Apps that buzz (Davor, 26 Nov). The
- * phone's own SMS app counts too, whoever makes it.
+ * Messaging and email apps, offered before every other app in onboarding and Apps that buzz (Davor, 26 Nov), most
+ * used first, so WhatsApp never loses its place to Instagram on an alphabet. The phone's own SMS app comes first.
  */
-private val TALK_APPS = setOf(
-    // Messaging
-    "com.whatsapp", "com.whatsapp.w4b", "org.thoughtcrime.securesms", "org.telegram.messenger", "org.telegram.messenger.web",
-    "com.google.android.apps.messaging", "com.samsung.android.messaging", "com.facebook.orca", "com.instagram.android",
-    "com.Slack", "com.microsoft.teams", "com.google.android.apps.dynamite", "com.viber.voip", "com.discord",
-    "ch.threema.app", "im.vector.app", "jp.naver.line.android", "com.tencent.mm", "com.kakao.talk", "com.snapchat.android",
-    "com.skype.raider", "com.wire", "network.loki.messenger", "com.beeper.android",
-    // Email
-    "com.google.android.gm", "com.microsoft.office.outlook", "ch.protonmail.android", "com.fastmail.app",
-    "com.samsung.android.email.provider", "com.readdle.spark", "com.yahoo.mobile.client.android.mail", "me.proton.android.mail",
-    "eu.faircode.email", "com.fsck.k9", "net.thunderbird.android", "com.superhuman.mail",
+private val TALK_APPS = listOf(
+    "com.whatsapp", "com.google.android.apps.messaging", "com.samsung.android.messaging", "org.thoughtcrime.securesms",
+    "org.telegram.messenger", "com.google.android.gm", "com.facebook.orca", "com.whatsapp.w4b", "com.microsoft.office.outlook",
+    "com.Slack", "com.microsoft.teams", "com.google.android.apps.dynamite", "com.discord", "com.instagram.android",
+    "com.viber.voip", "com.snapchat.android", "jp.naver.line.android", "com.tencent.mm", "com.kakao.talk",
+    "org.telegram.messenger.web", "ch.threema.app", "im.vector.app", "com.skype.raider", "com.wire", "network.loki.messenger",
+    "com.beeper.android", "me.proton.android.mail", "ch.protonmail.android", "com.fastmail.app",
+    "com.samsung.android.email.provider", "com.readdle.spark", "com.yahoo.mobile.client.android.mail", "eu.faircode.email",
+    "com.fsck.k9", "net.thunderbird.android", "com.superhuman.mail",
 )
 
-fun talkApps(context: Context): Set<String> =
-    TALK_APPS + listOfNotNull(runCatching { android.provider.Telephony.Sms.getDefaultSmsPackage(context) }.getOrNull())
+/** Messaging and email apps, best known first, with the phone's own SMS app at the top. */
+fun talkApps(context: Context): List<String> =
+    (listOfNotNull(runCatching { android.provider.Telephony.Sms.getDefaultSmsPackage(context) }.getOrNull()) + TALK_APPS).distinct()
 
-/** Chosen apps, then messaging and email apps, then the busiest this week, then by name. */
-fun appOrder(s: Settings, talk: Set<String>, week: Map<String, Int>) =
-    compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in talk }, { -(week[it.pkg] ?: 0) }, { it.label.lowercase() })
+/**
+ * Chosen apps, then messaging and email apps (busiest this week first, then best known), then the rest by this week's
+ * activity and name.
+ */
+fun appOrder(s: Settings, talk: List<String>, week: Map<String, Int>) =
+    compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in talk }, { -(week[it.pkg] ?: 0) },
+        { talk.indexOf(it.pkg).let { i -> if (i < 0) Int.MAX_VALUE else i } }, { it.label.lowercase() })
 
 /** Apps in the launcher, which is all AirBuzz may list on Android 11 and later without asking for more. */
 fun installedApps(context: Context): List<AppInfo> {

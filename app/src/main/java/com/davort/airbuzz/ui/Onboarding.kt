@@ -44,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -474,12 +475,19 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
     val apps = AppList.apps.collectAsStateWithLifecycle().value
     val context = LocalContext.current
     val busy = remember { engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount() }
-    // Chosen apps, then messaging and email apps, then the apps that notified most this week; six at most, fixed while open.
-    val shown = remember(apps == null) {
+    // Chosen apps, then messaging and email apps, then the apps that notified most this week; six, in an order fixed
+    // while open so a switch never jumps. An app chosen in All apps joins at the top, so the choice shows (Davor, 26 Nov).
+    val first = remember(apps == null) {
         val talk = talkApps(context)
         apps.orEmpty().sortedWith(appOrder(s, talk, busy))
             .filter { it.pkg in s.apps || it.pkg in talk || (busy[it.pkg] ?: 0) > 0 }.take(6)
     }
+    // Once added, a row stays while the step is open, even if switched off again, so the list doesn't jump.
+    val added = remember { mutableStateListOf<AppInfo>() }
+    LaunchedEffect(s.apps, first) {
+        added.addAll(0, apps.orEmpty().filter { it.pkg in s.apps && first.none { f -> f.pkg == it.pkg } && added.none { a -> a.pkg == it.pkg } })
+    }
+    val shown = added + first
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
         StepHead("Which apps should buzz your Fitbit\u00A0Air?", "A message from one of these buzzes it once. Everything else stays on your phone.") {
             IconCircle(Curve.APPS)
