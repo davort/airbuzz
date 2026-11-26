@@ -661,7 +661,8 @@ fun describe(e: Entry): Pair<String, String> {
         }
         Fate.FAILED -> if (call) "$callWord, couldn’t reach your Fitbit Air" else "Couldn’t reach your Fitbit Air"
         // An app or caller that wasn't picked reads "Ignored", the word the Today line and Activity count it under.
-        Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "$callWord, ${it.lowercase()}" else it }
+        // Only the first letter is lowered after "Call, ", so names such as Fitbit Air and AirBuzz keep their capitals.
+        Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "$callWord, ${if (it.startsWith("AirBuzz")) it else it.replaceFirstChar(Char::lowercase)}" else it }
     }
     return title to detail
 }
@@ -678,6 +679,8 @@ fun reasonLabel(e: Entry): String = when (e.reason) {
     "AirBuzz is off" -> "AirBuzz off"
     // The app took its notification back before the Air answered, usually because it was read elsewhere (Davor, 17 Nov).
     // A no-break space keeps "first" with the app's name, so a wrap never leaves it alone on a line.
+    // A call that ended before the band answered; on a missed call this reads "Missed call, ended before your Fitbit Air rang".
+    "stopped ringing before the Fitbit Air was reached" -> "Ended before your Fitbit\u00A0Air rang"
     "gone from the phone before the Fitbit Air was reached" -> "Not buzzed · cleared by ${e.appLabel}\u00A0first"
     else -> e.reason.replaceFirstChar { it.uppercase() }
 }
