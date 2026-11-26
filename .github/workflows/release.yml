@@ -1,6 +1,9 @@
 # Builds a release when a version tag such as v0.7.0 is pushed: the unit tests, an APK signed with the app signing key
 # ("airbuzz") for GitHub, and a bundle for Google Play signed with the same key. The APK, its SHA-256
 # and the signing certificate's SHA-256 go on a draft GitHub Release; the bundle is kept as a workflow artifact.
+# The APK also goes up as AirBuzz.apk, so the website's link, releases/latest/download/AirBuzz.apk, never changes.
+# Releases are published as full releases titled "(beta)", not pre-releases: GitHub's "latest" and Obtainium skip
+# pre-releases (Davor, 26 Nov).
 #
 # Secrets: AIRBUZZ_KEYSTORE_B64 (a base64 PKCS12 keystore with the entry "airbuzz") and
 # AIRBUZZ_KEYSTORE_PASSWORD (for the store and its entries).
@@ -83,6 +86,7 @@ jobs:
           mkdir -p out
           apk="out/AirBuzz-$VERSION.apk"
           cp app/build/outputs/apk/release/app-release.apk "$apk"
+          cp "$apk" out/AirBuzz.apk
           cp app/build/outputs/bundle/release/app-release.aab "out/AirBuzz-$VERSION.aab"
           apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$apksigner" verify "$apk"
@@ -103,12 +107,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --title "AirBuzz $VERSION" --notes "$(cat <<EOF
+          gh release create "$GITHUB_REF_NAME" --draft --title "AirBuzz $VERSION (beta)" --notes "$(cat <<EOF
           APK SHA-256: \`$APK_SHA256\`
 
           Signing certificate SHA-256: \`$CERT_SHA256\`
           EOF
-          )" "out/AirBuzz-$VERSION.apk" "out/AirBuzz-$VERSION.apk.sha256" out/AirBuzz-signing-certificate.sha256
+          )" "out/AirBuzz-$VERSION.apk" "out/AirBuzz-$VERSION.apk.sha256" out/AirBuzz.apk out/AirBuzz-signing-certificate.sha256
 
       - name: Remove the keystore
         if: always()
