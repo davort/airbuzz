@@ -34,7 +34,11 @@ class AlertListener : NotificationListenerService() {
     private val callShape = HashMap<String, String>()
     /** Why a chosen app's notification last didn't count as a new message, per key, so each reason logs once. */
     private val dropped = HashMap<String, String>()
-    /** Rings that started or ran while the phone was in ringtone mode; they end when it leaves that mode. */
+    /**
+     * Rings of the phone's own phone app (a system call screen or the default phone app) that ran while the phone was
+     * in ringtone mode; they end when it leaves that mode. Other apps' rings don't: WhatsApp's calls leave ringtone
+     * mode after about 6 s and keep ringing (Davor's phone, 26 Nov).
+     */
     private val modeRinging = HashSet<String>()
     private val summaries = LoneSummaries()
     private val main = Handler(Looper.getMainLooper())
@@ -99,7 +103,7 @@ class AlertListener : NotificationListenerService() {
     }
 
     private fun ring(sbn: StatusBarNotification) {
-        if (audioMode == AudioManager.MODE_RINGTONE) modeRinging += sbn.key
+        if (audioMode == AudioManager.MODE_RINGTONE && isPhoneApp(sbn.packageName)) modeRinging += sbn.key
         if (!ringing.add(sbn.key)) return
         engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(sbn.notification), moment(), sbn.postTime)
     }
@@ -113,8 +117,8 @@ class AlertListener : NotificationListenerService() {
     /**
      * The phone's audio mode, which Android's call service sets to ringtone while a phone call rings and to in call
      * once it is answered. On OnePlus the ringing notification of the built-in phone app looks the same while ringing
-     * and in a call (a tester's log, 26 Nov), so the mode tells them apart; and a ring that ran in ringtone mode stops
-     * as soon as the phone leaves it, which can come before the app updates its notification.
+     * and in a call (a tester's log, 26 Nov), so the mode tells them apart; and the phone app's ring stops as soon as
+     * the phone leaves ringtone mode, which can come before the app updates its notification ([modeRinging]).
      */
     private fun onAudioMode(mode: Int) {
         val was = audioMode
@@ -124,8 +128,8 @@ class AlertListener : NotificationListenerService() {
             engine.note("Phone audio mode: ${modeName(was)} → ${modeName(mode)}")
         }
         if (mode == AudioManager.MODE_RINGTONE) {
-            modeRinging += ringing
-            // A system call screen that posted before the mode changed rings now.
+            // A system call screen that posted before the mode changed rings now, and the phone app's ring that is
+            // already under way ends with the mode.
             (runCatching { activeNotifications }.getOrNull() ?: emptyArray())
                 .filter { callState(it) == CallState.INCOMING }.forEach(::ring)
         } else if (was == AudioManager.MODE_RINGTONE) {
@@ -202,7 +206,7 @@ class AlertListener : NotificationListenerService() {
         }
         if (n.category == Notification.CATEGORY_CALL) return when {
             n.fullScreenIntent != null -> CallState.INCOMING
-            audioMode == AudioManager.MODE_RINGTONE && (sbn.packageName in CALL_SCREENS || sbn.packageName == defaultDialer()) -> CallState.INCOMING
+            audioMode == AudioManager.MODE_RINGTONE && isPhoneApp(sbn.packageName) -> CallState.INCOMING
             else -> CallState.OTHER
         }
         return CallState.NONE
@@ -263,6 +267,8 @@ class AlertListener : NotificationListenerService() {
         val number = uriNumber ?: name?.takeIf(Rules::looksLikeNumber)
         return Caller(name?.takeUnless(Rules::looksLikeNumber), number)
     }
+
+    private fun isPhoneApp(pkg: String) = pkg in CALL_SCREENS || pkg == defaultDialer()
 
     private fun defaultDialer(): String? = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
 
