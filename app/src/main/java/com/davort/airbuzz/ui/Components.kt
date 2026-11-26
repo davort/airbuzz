@@ -430,7 +430,7 @@ fun StrengthTiles(strong: Boolean, onSelect: (Boolean) -> Unit) {
                         drawRoundRect(Pebble, Offset(17 * u, 17 * u), Size(80 * u, 40 * u), CornerRadius(20 * u))
                         drawLine(Color(0xFF3A3C40), Offset(29 * u, 25.8f * u), Offset(69 * u, 25.8f * u), 3 * u, StrokeCap.Round)
                     }
-                    Text(label, style = Type.bodyMedium, color = lerp(a.ink, a.heading, shown), maxLines = 1, softWrap = false)
+                    Text(label, style = Type.bodyMedium, color = a.ink, maxLines = 1, softWrap = false)
                 }
                 Canvas(Modifier.align(Alignment.TopEnd).padding(10.dp).size(22.dp)) {
                     val u = size.width / 22f
@@ -604,7 +604,7 @@ fun ScreenBar(title: String, onBack: () -> Unit, close: Boolean = false, right: 
             contentAlignment = Alignment.CenterStart) {
             GlyphIcon(if (close) Glyph.DOWN else Glyph.BACK, 24.dp, a.ink)
         }
-        Text(title, style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).semantics { heading() })
+        Text(title, style = Type.heading, color = a.ink, modifier = Modifier.weight(1f).semantics { heading() })
         right()
     }
 }

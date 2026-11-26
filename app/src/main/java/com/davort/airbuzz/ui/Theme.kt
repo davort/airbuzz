@@ -57,7 +57,6 @@ data class AirColors(
     val bg: Color,
     val surface: Color,
     val ink: Color,
-    val heading: Color,
     val muted: Color,
     val line: Color,
     val outline: Color,
@@ -99,12 +98,12 @@ fun airColors(dark: Boolean, accent: Color): AirColors {
     fun Color.h(weight: Float) = hint(accent, k * weight)
     val surface = if (dark) Color(0xFF18191B).h(0.45f) else Color.White
     return if (dark) AirColors(
-        dark = true, bg = Color(0xFF0E0F10).h(1f), surface = surface, ink = Color(0xFFECEDF0).h(0.35f), heading = Color.White.h(0.2f),
+        dark = true, bg = Color(0xFF0E0F10).h(1f), surface = surface, ink = Color(0xFFECEDF0).h(0.35f),
         muted = Color(0xFF9A9DA3).h(0.6f), line = Color(0xFF2A2B2E).h(0.9f), outline = Color(0xFF595C61).h(0.7f), selected = Color(0xFF313236).h(0.9f),
         context = Color(0xFF3D3F43).h(0.8f), onInk = Color(0xFF0E0F10).h(1f), ok = Color(0xFF5CC88A), warn = Color(0xFFF0A43A), warnTint = Color(0xFF3F3221),
         accent = accent, tint = accent.copy(alpha = 0.16f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.24f).compositeOver(surface),
     ) else AirColors(
-        dark = false, bg = Color(0xFFF1F2F4).h(1f), surface = surface, ink = Color(0xFF121418).h(0.35f), heading = Color(0xFF05070A).h(0.2f),
+        dark = false, bg = Color(0xFFF1F2F4).h(1f), surface = surface, ink = Color(0xFF121418).h(0.35f),
         muted = Color(0xFF62666E).h(0.6f), line = Color(0xFFDFE1E5).h(0.9f), outline = Color(0xFFAFB3BA).h(0.7f), selected = Color(0xFFE4E6EA).h(0.9f),
         context = Color(0xFFC6C9CF).h(0.8f), onInk = Color.White, ok = Color(0xFF2E8B57), warn = Color(0xFFA35E00), warnTint = Color(0xFFF6EEE0),
         accent = accent, tint = accent.copy(alpha = 0.10f).compositeOver(surface), tintPressed = accent.copy(alpha = 0.18f).compositeOver(surface),
@@ -119,9 +118,8 @@ private fun sans(weight: Int) = Font(R.font.google_sans_flex, FontWeight(weight)
 @OptIn(ExperimentalTextApi::class)
 private fun code(weight: Int) = Font(R.font.google_sans_code, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 
-val Sans = FontFamily(sans(400), sans(500), sans(560))
+val Sans = FontFamily(sans(400), sans(450), sans(500), sans(560))
 val Code = FontFamily(code(400), code(500))
-val Serif = FontFamily(Font(R.font.instrument_serif))
 val Pixel = FontFamily(Font(R.font.geist_pixel))
 
 private val Trim = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)
@@ -146,7 +144,8 @@ object Space {
 }
 
 object Type {
-    val heading = style(Serif, 34, 40)
+    /** Page and sheet titles: the text face, a touch heavier and slightly tight (26 Nov, replaces Instrument Serif). */
+    val heading = style(Sans, 28, 32, 450).copy(letterSpacing = (-0.01).em)
     val title = style(Sans, 24, 32, 500)
     val sentence = style(Sans, 20, 34)
     val body = style(Sans, 16, 24)

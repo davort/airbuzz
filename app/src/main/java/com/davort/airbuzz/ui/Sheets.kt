@@ -282,7 +282,7 @@ fun Sheet(title: String, onClose: () -> Unit, action: String = "Done", onAction:
 fun SheetBody(title: String, action: String, onAction: () -> Unit, actionShown: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val a = LocalAirColors.current
     Column(Modifier.padding(start = 20.dp, end = 20.dp, top = Space.TIGHT.dp, bottom = Space.SECTION.dp), verticalArrangement = Arrangement.spacedBy(Space.TIGHT.dp)) {
-        Text(title, style = Type.heading, color = a.heading)
+        Text(title, style = Type.heading, color = a.ink)
         content()
         if (actionShown) Pill(action, onAction, Modifier.fillMaxWidth())
     }
@@ -308,7 +308,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
     val cascaded = remember { mutableStateListOf<Person>() }
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    Sheet("Who can ring your Fitbit\u00A0Air", onClose) {
+    Sheet("People who ring", onClose) {
         CallChoice(s.callMode, s.people, icon = true) { m -> engine.store.update { it.copy(callMode = m) } }
         ScrollUnderFade {
             // Only Chosen has a list.
@@ -780,7 +780,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
         val rest = s.people.filter { p -> ringingAnyway(s).none { it == p || (p.number != null && it.number == p.number) } }
         val waiting = s.ringAnywayPeople.filter { !isChosen(s, it) }
         if (waiting.isNotEmpty()) Column {
-            Label("Can't ring yet · not in Who can ring")
+            Label("Can't ring yet · not in People who ring")
             Gap(Space.HINT)
             waiting.forEachIndexed { i, p ->
                 LineRow(i == 0) {
@@ -794,7 +794,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             }
         }
         Column {
-            if (rest.isNotEmpty()) { Label("From Who can ring"); Gap(Space.HINT) }
+            if (rest.isNotEmpty()) { Label("From People who ring"); Gap(Space.HINT) }
             rest.forEachIndexed { i, p ->
                 LineRow(i == 0) {
                     Avatar(p.name)
@@ -803,7 +803,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
                 }
             }
             TextAction(if (rest.isEmpty()) "Add people" else "Someone else", pick)
-            Text("They join Who can ring too.", style = Type.small, color = a.muted)
+            Text("They join People who ring too.", style = Type.small, color = a.muted)
         }
     }
 }

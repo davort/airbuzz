@@ -12,7 +12,6 @@ AirBuzz is licensed under the GNU General Public License v3.0 (see `LICENSE`), w
 | AndroidX, Jetpack Compose, RxJava | App framework | Apache-2.0, `licenses/Apache-2.0.txt` |
 | OkHttp and Okio (Square), Timber (Jake Wharton), RxAndroid, AndroidX Annotation | Libraries the Golden Gate bindings in `goldengate/` depend on | Apache-2.0, `licenses/Apache-2.0.txt` |
 | Google Sans Flex, Google Sans Code (google/fonts) | `app/src/main/res/font/google_sans_flex.ttf`, `google_sans_code.ttf` | SIL Open Font License 1.1, `licenses/GoogleSansFlex-OFL.txt`, `licenses/GoogleSansCode-OFL.txt` |
-| Instrument Serif (google/fonts) | `app/src/main/res/font/instrument_serif.ttf` | SIL Open Font License 1.1, `licenses/InstrumentSerif-OFL.txt` |
 | Geist Pixel Square by Vercel (vercel/geist-font) | `app/src/main/res/font/geist_pixel.ttf` | SIL Open Font License 1.1, `licenses/GeistPixel-OFL.txt` |
 
 No code or binary from the Google Health or Fitbit apps is included.

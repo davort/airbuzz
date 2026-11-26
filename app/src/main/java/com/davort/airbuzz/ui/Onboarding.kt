@@ -159,7 +159,7 @@ private fun StepHead(title: String, body: String, art: @Composable () -> Unit) {
     val a = LocalAirColors.current
     Box(Modifier.fillMaxWidth().height(104.dp).padding(bottom = 20.dp), contentAlignment = Alignment.BottomStart) { art() }
     Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = Type.heading, color = a.heading, modifier = Modifier.semantics { heading() })
+        Text(title, style = Type.heading, color = a.ink, modifier = Modifier.semantics { heading() })
         // Body size, not small: at 14 sp every step looked empty beside the heading and the button (issue #19).
         Text(body, style = Type.body, color = a.muted)
     }
@@ -244,7 +244,7 @@ private fun ColumnScope.Bookend(title: String, body: String, note: String, butto
         // The rings reach 18 dp past the capsule.
         Box(Modifier.padding(18.dp)) { AirPebble(120.dp, Buzz.TAPPED, wave = wave) }
         Gap(28)
-        Text(title, style = Type.heading.copy(fontSize = 44.sp, lineHeight = 48.sp), color = a.heading, textAlign = TextAlign.Center,
+        Text(title, style = Type.heading.copy(fontSize = 36.sp, lineHeight = 40.sp), color = a.ink, textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() })
         Gap(12)
         Text(body, style = Type.body, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.width(300.dp))
@@ -286,14 +286,14 @@ private fun ColumnScope.Intro(played: Boolean, onPlayed: () -> Unit, next: () ->
     val wave = listOf(IntroAt.BUZZ, IntroAt.BUZZ + 500f).map { (now - it) / 520f }.firstOrNull { it in 0.001f..0.999f } ?: 0f
 
     Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("AirBuzz", style = Type.heading.copy(fontSize = 30.sp, lineHeight = 36.sp), color = a.heading)
+        Text("AirBuzz", style = Type.heading.copy(fontSize = 26.sp, lineHeight = 30.sp), color = a.ink)
         Gap(28)
         Box(Modifier.padding(18.dp)) {
             AirPebble(120.dp, if (now >= IntroAt.BUZZ) Buzz.TAPPED else Buzz.REST, shake, wave = wave)
         }
         Gap(28)
-        Text("Your Fitbit\u00A0Air, buzzing for what\u00A0matters", style = Type.heading.copy(fontSize = 44.sp, lineHeight = 48.sp),
-            color = a.heading, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
+        Text("Your Fitbit\u00A0Air, buzzing for what\u00A0matters", style = Type.heading.copy(fontSize = 36.sp, lineHeight = 40.sp),
+            color = a.ink, textAlign = TextAlign.Center, modifier = Modifier.semantics { heading() })
         Gap(12)
         Text("Calls from the people you pick. Messages from the apps you pick. Everything else stays on your phone.",
             style = Type.body, color = a.muted, textAlign = TextAlign.Center, modifier = Modifier.width(300.dp))
@@ -517,7 +517,7 @@ private fun ColumnScope.FeelIt(engine: Engine, done: () -> Unit) {
             else -> StepFoot("Test buzz", { engine.testBuzz() })
         }
     }, gap = 24) {
-        Text("Feel it", style = Type.heading, color = a.heading, modifier = Modifier.padding(top = 4.dp).semantics { heading() })
+        Text("Feel it", style = Type.heading, color = a.ink, modifier = Modifier.padding(top = 4.dp).semantics { heading() })
         TestBuzzReadout(engine, button = "Test buzz")
     }
 }

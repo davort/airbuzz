@@ -196,7 +196,6 @@ val Licences = listOf(
     Licence("OkHttp, Okio, Timber, RxAndroid, AndroidX Annotation", "Apache-2.0", listOf("Licence" to APACHE)),
     Licence("Google Sans Flex, Google Sans Code", "SIL OFL 1.1",
         listOf("Google Sans Flex" to "licenses/GoogleSansFlex-OFL.txt", "Google Sans Code" to "licenses/GoogleSansCode-OFL.txt")),
-    Licence("Instrument Serif", "SIL OFL 1.1", listOf("Licence" to "licenses/InstrumentSerif-OFL.txt")),
     Licence("Geist Pixel", "SIL OFL 1.1", listOf("Licence" to "licenses/GeistPixel-OFL.txt")),
 )
 
@@ -216,7 +215,7 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
                     Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.requiredSize(96.dp))
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("AirBuzz", style = Type.heading.copy(fontSize = 28.sp, lineHeight = 32.sp), color = a.heading)
+                    Text("AirBuzz", style = Type.heading, color = a.ink)
                     Label("Version ${appVersion(context)}")
                     // Its own line: "Version 0.6.10 · GPL-3.0 · © 2026 Misek AB" is wider than a 360 dp phone allows.
                     Label("© 2026 Misek AB")
@@ -731,7 +730,7 @@ private fun sheetFor(e: Entry): SheetKind? = when (e.reason) {
 
 /** A sheet as an Activity row names it, the same words as its title. */
 private fun sheetName(kind: SheetKind) = when (kind) {
-    SheetKind.PEOPLE -> "Who can ring"
+    SheetKind.PEOPLE -> "People who ring"
     SheetKind.APPS -> "Apps that buzz"
     SheetKind.QUIET -> "Stay quiet"
     SheetKind.PAUSE -> "Pause"

@@ -299,7 +299,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
         Page {
             // Top bar: title, state and switch (decision 20). Settings is the Air shelf (decision 33).
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("AirBuzz", style = Type.heading, color = a.heading, modifier = Modifier.weight(1f).semantics { heading() })
+                Text("AirBuzz", style = Type.heading, color = a.ink, modifier = Modifier.weight(1f).semantics { heading() })
                 // The status rolls: the old word leaves upward, the new one rises in (decision 40).
                 val roll = with(LocalDensity.current) { 10.dp.roundToPx() }
                 AnimatedContent(when { paused -> 1; s.enabled -> 0; else -> 2 }, label = "status", contentAlignment = Alignment.CenterEnd, transitionSpec = {
@@ -393,7 +393,7 @@ fun Home(engine: Engine, s: AirSettings, sheet: SheetKind?, go: (Screen) -> Unit
                 { RuleItem("Calls", "Rings until answered") {
                     Sentence(listOf(
                         Part.Words("When"),
-                        Part.Blank("Who can ring", who[0], open = sheet == SheetKind.PEOPLE, shorter = who.drop(1)) { open(SheetKind.PEOPLE) },
+                        Part.Blank("People who ring", who[0], open = sheet == SheetKind.PEOPLE, shorter = who.drop(1)) { open(SheetKind.PEOPLE) },
                         Part.Words((if (one) "calls" else "call") + " from any app, ring my Fitbit Air."),
                     ))
                 } },

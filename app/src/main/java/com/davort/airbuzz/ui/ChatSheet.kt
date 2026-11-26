@@ -123,7 +123,7 @@ fun RingersNote(s: Settings) {
         Box(Modifier.padding(top = 1.dp)) { CurveIcon(Curve.PHONE, 18.dp, a.muted, 1.8f) }
         Text(buildAnnotatedString {
             withStyle(SpanStyle(color = a.ink, fontWeight = FontWeight.Medium)) { append(summarize(s.people.map { it.name }, "")) }
-            append(" from Who can ring always buzz when they message you directly, in any\u00A0app.")
+            append(" from People who ring always buzz when they message you directly, in any\u00A0app.")
         }, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
     }
 }
