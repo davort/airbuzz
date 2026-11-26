@@ -651,15 +651,17 @@ fun describe(e: Entry): Pair<String, String> {
     if (e.kind == Kind.TEST) return "Test buzz" to if (e.result == com.davort.airbuzz.data.Result.BUZZED) "Buzzed in ${seconds(e.latencyMs)}" else "Failed"
     val title = if (e.who != null && e.who != e.appLabel) "${e.appLabel} · ${e.who}" else e.appLabel
     val call = e.kind == Kind.CALL
+    // A call the phone app reported as missed says so where every call row says "Call".
+    val callWord = if (e.missed) "Missed call" else "Call"
     val detail = when (e.fate) {
         Fate.BUZZED -> when {
-            call -> "Call, " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
+            call -> "$callWord, " + (e.rangMs?.let { "rang ${it / 1000} s" } ?: "ringing")
             e.count > 1 -> "${e.count} messages, 1 buzz"
             else -> "Buzzed"
         }
-        Fate.FAILED -> if (call) "Call, couldn’t reach your Fitbit Air" else "Couldn’t reach your Fitbit Air"
+        Fate.FAILED -> if (call) "$callWord, couldn’t reach your Fitbit Air" else "Couldn’t reach your Fitbit Air"
         // An app or caller that wasn't picked reads "Ignored", the word the Today line and Activity count it under.
-        Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "Call, ${it.lowercase()}" else it }
+        Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "$callWord, ${it.lowercase()}" else it }
     }
     return title to detail
 }
