@@ -16,17 +16,17 @@ class SetUpSummaryTest {
 
     @Test fun namesPeopleAndAppsAndReferBackToTheFitbitAir() {
         assertEquals("Calls from Mum now ring your Fitbit Air. Messages from Signal and WhatsApp buzz it once.",
-            summary(Settings(people = people("Mum"), apps = setOf("com.whatsapp", "org.thoughtcrime.securesms"))))
+            summary(Settings(callMode = CallMode.CHOSEN, people = people("Mum"), apps = setOf("com.whatsapp", "org.thoughtcrime.securesms"))))
     }
 
     @Test fun countsTheRestOfALongList() {
-        assertEquals("Calls from Mum, Noor and 1 other now ring your Fitbit Air.", summary(Settings(people = people("Mum", "Noor", "Sara"))))
-        assertEquals("Calls from Mum, Noor and 2 others now ring your Fitbit Air.", summary(Settings(people = people("Mum", "Noor", "Sara", "Ali"))))
+        assertEquals("Calls from Mum, Noor and 1 other now ring your Fitbit Air.", summary(Settings(callMode = CallMode.CHOSEN, people = people("Mum", "Noor", "Sara"))))
+        assertEquals("Calls from Mum, Noor and 2 others now ring your Fitbit Air.", summary(Settings(callMode = CallMode.CHOSEN, people = people("Mum", "Noor", "Sara", "Ali"))))
     }
 
     @Test fun messagesAloneNameTheFitbitAirAndTheirPattern() {
         assertEquals("Messages from Signal, Telegram and 1 more app buzz your Fitbit Air twice.",
-            summary(Settings(apps = labels.keys, messageTaps = 2)))
+            summary(Settings(callMode = CallMode.CHOSEN, apps = labels.keys, messageTaps = 2)))
     }
 
     @Test fun modesWithoutAListSayWhoRings() {
@@ -35,6 +35,10 @@ class SetUpSummaryTest {
     }
 
     @Test fun nothingChosenStillSaysItIsOn() {
-        assertEquals("AirBuzz is on. Choose who rings and which apps buzz from Home.", summary(Settings()))
+        assertEquals("AirBuzz is on. Choose who rings and which apps buzz from Home.", summary(Settings(callMode = CallMode.CHOSEN)))
+    }
+
+    @Test fun aNewInstallLetsEveryCallRing() {
+        assertEquals("Every call now rings your Fitbit Air.", summary(Settings()))
     }
 }

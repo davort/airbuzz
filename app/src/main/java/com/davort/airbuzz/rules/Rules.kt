@@ -33,7 +33,8 @@ data class MessageFrom(
 /** Everything the user sets. Defaults follow the brief's decisions: quiet by default, all three don't-buzz rules on. */
 data class Settings(
     val enabled: Boolean = false,
-    val callMode: CallMode = CallMode.CHOSEN,
+    /** Anyone until changed: a call buzzing that wasn't wanted beats a wanted call missed (Davor, 26 Nov). */
+    val callMode: CallMode = CallMode.ANYONE,
     val people: List<Person> = emptyList(),
     val apps: Set<String> = emptySet(),
     /** Taps per message: 1, 2 or 3. */

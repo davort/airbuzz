@@ -16,7 +16,7 @@ import org.junit.Test
 
 class RulesTest {
     private val mum = Person("Mum", Rules.normalize("070-123 45 67", "SE"))
-    private val on = Settings(enabled = true, people = listOf(mum), apps = setOf("com.whatsapp"))
+    private val on = Settings(enabled = true, callMode = CallMode.CHOSEN, people = listOf(mum), apps = setOf("com.whatsapp"))
     private val day = Moment(nowMs = 1_000_000, minuteOfDay = 12 * 60, doNotDisturb = false, phoneInUse = false)
     private val night = day.copy(minuteOfDay = 2 * 60)
 
