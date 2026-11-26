@@ -125,4 +125,11 @@ class RulesTest {
         assertEquals(Outcome.Skip("silent on the phone"), Rules.decideMessage("com.whatsapp", MessageFrom(silentOnPhone = true), on, day, null, "SE"))
         assertEquals(Outcome.Skip("not chosen"), Rules.decideMessage("com.instagram.android", MessageFrom(silentOnPhone = true), on, day, null, "SE"))
     }
+
+    @Test fun aNewInstallRingsWhileThePhoneIsInUseUntilThatQuietIsTurnedOn() {
+        val inUse = day.copy(phoneInUse = true)
+        val fresh = Settings(enabled = true)
+        assertEquals(Outcome.Buzz, Rules.decideCall(Caller("Bob", null), fresh, inUse, "SE"))
+        assertEquals(Outcome.Skip("phone in use"), Rules.decideCall(Caller("Bob", null), fresh.copy(quietInUse = true), inUse, "SE"))
+    }
 }

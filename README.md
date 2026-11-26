@@ -94,7 +94,7 @@ Works with Google Fitbit Air. AirBuzz is not made by, endorsed by or affiliated 
 
 - **Calls**, from any app that rings (phone, WhatsApp, Signal…): the Fitbit Air buzzes every second until you answer, decline or press Silence, for up to 60 s. Who can ring is Chosen people (the default), Contacts, or Anyone. Quiet times and Pause silence calls too, except from people in Stay quiet's "Let some people ring anyway" list, which is off and empty until you fill it.
 - **Messages** from chosen apps: one, two or three taps. Messages from the same app within 15 s share one buzz.
-- **Stay quiet** at night, in Do Not Disturb, and while you use the phone (all on by default).
+- **Stay quiet** at night and in Do Not Disturb (both on by default), and while you use the phone (off by default).
 - **Activity**: the last three alerts on Home and a week of history, each with what AirBuzz did and why.
 - **Test buzz** shows how long the Fitbit Air took, step by step.
 - **Appearance**: System, Light or Dark, with an accent colour for each.

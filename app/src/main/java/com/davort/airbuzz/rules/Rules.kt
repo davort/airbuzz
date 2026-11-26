@@ -30,7 +30,10 @@ data class MessageFrom(
     val silentOnPhone: Boolean = false,
 )
 
-/** Everything the user sets. Defaults follow the brief's decisions: quiet by default, all three don't-buzz rules on. */
+/**
+ * Everything the user sets. Defaults follow the brief's decisions: quiet at night and in Do Not Disturb. Quiet while
+ * using the phone starts off: it silenced a tester's test calls (Davor, 26 Nov).
+ */
 data class Settings(
     val enabled: Boolean = false,
     /** Anyone until changed: a call buzzing that wasn't wanted beats a wanted call missed (Davor, 26 Nov). */
@@ -45,7 +48,7 @@ data class Settings(
     /** Minutes after midnight. */
     val quietStart: Int = 23 * 60,
     val quietEnd: Int = 7 * 60,
-    val quietInUse: Boolean = true,
+    val quietInUse: Boolean = false,
     /** Epoch millis when a pause ends. Pausing until switched back on is Off instead (decision 37). */
     val pausedUntil: Long = 0L,
     val theme: ThemeMode = ThemeMode.SYSTEM,
