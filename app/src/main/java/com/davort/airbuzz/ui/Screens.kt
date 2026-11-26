@@ -105,13 +105,13 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
         Card {
             Label("Strength")
             StrengthTiles(s.strong) { strong -> engine.store.update { it.copy(strong = strong) } }
-            Text("Strong uses more battery and also sets your Fitbit Air's alarm strength.", style = Type.small, color = a.muted)
+            Text("Strong uses more battery and also sets your Fitbit Air’s alarm strength.", style = Type.small, color = a.muted)
         }
         Group(listOf({
             GroupRow({ go(Screen.APPEARANCE) }) {
                 TwoLine("Appearance", Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Label(when (s.theme) { ThemeMode.SYSTEM -> "System"; ThemeMode.LIGHT -> "Light"; ThemeMode.DARK -> "Dark" })
+                        Sub(when (s.theme) { ThemeMode.SYSTEM -> "System"; ThemeMode.LIGHT -> "Light"; ThemeMode.DARK -> "Dark" })
                         HGap(6)
                         Dot(a.accent)
                     }
@@ -124,27 +124,27 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
             GroupRow({ context.startActivity(Intent(SystemSettings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
                 .putExtra(SystemSettings.EXTRA_APP_PACKAGE, context.packageName)
                 .putExtra(SystemSettings.EXTRA_CHANNEL_ID, MISSED_CHANNEL)) }) {
-                TwoLine("Missed alerts", Modifier.weight(1f)) { Label(missed) }
+                TwoLine("Missed alerts", Modifier.weight(1f)) { Sub(missed) }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             }
         }))
         Group(listOf<@Composable () -> Unit>(
             { GroupRow({ go(Screen.SETUP) }) {
-                TwoLine("Setup checklist", Modifier.weight(1f)) { Label("Permissions and background") }
+                TwoLine("Setup checklist", Modifier.weight(1f)) { Sub("Permissions and background") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
             { GroupRow({ shareLog(context, engine) }) {
-                TwoLine("Share log", Modifier.weight(1f)) { Label("When something didn't buzz") }
+                TwoLine("Share log", Modifier.weight(1f)) { Sub("When something didn’t buzz") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
             { GroupRow({ go(Screen.ABOUT) }) {
-                TwoLine("About", Modifier.weight(1f)) { Label("Version $version · GPL-3.0") }
+                TwoLine("About", Modifier.weight(1f)) { Sub("Version $version · GPL-3.0") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
         ) + listOfNotNull<@Composable () -> Unit>(
             // A testing aid: release builds leave it out, and the Setup checklist covers the same ground there.
             if (debuggable) ({ GroupRow({ engine.store.update { it.copy(onboarded = false) }; go(Screen.HOME) }) {
-                TwoLine("Show onboarding again", Modifier.weight(1f)) { Label("For testing · keeps your settings") }
+                TwoLine("Show onboarding again", Modifier.weight(1f)) { Sub("For testing · keeps your settings") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } }) else null,
         ))
@@ -152,7 +152,7 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
         Group(listOf({
             GroupRow {
                 TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
-                    Label(lastReached(band.lastReachedAt, entries)?.let { "Last buzz ${timeOf(it)}" } ?: "No buzz yet")
+                    Sub(lastReached(band.lastReachedAt, entries)?.let { "Last buzz ${timeOf(it)}" } ?: "No buzz yet")
                 }
                 Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
             }
@@ -230,15 +230,15 @@ fun AboutScreen(go: (Screen) -> Unit, onBack: () -> Unit) {
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
             { GroupRow({ openWeb(context, "https://airbuzz.me/privacy") }) {
-                TwoLine("Privacy policy", Modifier.weight(1f)) { Label("Kept on your phone") }
+                TwoLine("Privacy policy", Modifier.weight(1f)) { Sub("Kept on your phone") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
             { GroupRow({ openWeb(context, "https://airbuzz.me/terms") }) {
-                TwoLine("Terms of use", Modifier.weight(1f)) { Label("Free and provided as is") }
+                TwoLine("Terms of use", Modifier.weight(1f)) { Sub("Free and provided as is") }
                 GlyphIcon(Glyph.OUT, 22.dp, a.muted)
             } },
             { GroupRow({ go(Screen.LICENCES) }) {
-                TwoLine("Open-source licences", Modifier.weight(1f)) { Label("AirBuzz and what it uses") }
+                TwoLine("Open-source licences", Modifier.weight(1f)) { Sub("AirBuzz and what it uses") }
                 GlyphIcon(Glyph.CHEVRON, 22.dp, a.muted)
             } },
         ))
@@ -293,7 +293,7 @@ fun AppearanceScreen(engine: Engine, s: Settings, onBack: () -> Unit) {
             @Composable {
                 GroupRow({ engine.store.update { it.copy(theme = mode) } }) {
                     Mark(s.theme == mode, radio = true)
-                    TwoLine(name, Modifier.weight(1f), if (mode == ThemeMode.SYSTEM) ({ Label("Follows your phone · now ${if (a.dark) "dark" else "light"}") }) else null)
+                    TwoLine(name, Modifier.weight(1f), if (mode == ThemeMode.SYSTEM) ({ Sub("Follows your phone · now ${if (a.dark) "dark" else "light"}") }) else null)
                 }
             }
         })
@@ -487,7 +487,7 @@ fun TestBuzzReadout(engine: Engine, button: String) {
     Text(when {
         grade != null -> "Your Fitbit Air buzzed ${seconds(buzzedMs)} after you pressed $button. ${grade.sentence}"
         connecting -> "Connecting to your Fitbit Air…"
-        failed -> "Couldn't reach your Fitbit Air. ${r?.message ?: ""}".trim()
+        failed -> "Couldn’t reach your Fitbit Air. ${r?.message ?: ""}".trim()
         else -> "Press $button to buzz your Fitbit Air once and see how long it takes. Under ${EXCELLENT_MS / 1000} s is excellent, under ${GOOD_MS / 1000} s is good."
     }, style = Type.body, color = a.ink)
     Timeline(steps, if (connecting) elapsed else null, buzzedMs ?: if (failed) r?.totalMs else null, failed)
@@ -551,8 +551,8 @@ enum class Grade(val word: String, val sentence: String) {
     EXCELLENT("Excellent", "Under ${EXCELLENT_MS / 1000} s is excellent."),
     // A no-break space keeps "excellent." from ending alone on a line.
     GOOD("Good", "Under ${GOOD_MS / 1000} s is good; under ${EXCELLENT_MS / 1000} s is\u00A0excellent."),
-    SLOW("Slow", if (Engine.OPEN_LINK) "That's slower than usual. The first buzz after a while takes longest, so test again."
-        else "That's slower than usual. Google Health may have been syncing with it, so test again."),
+    SLOW("Slow", if (Engine.OPEN_LINK) "That’s slower than usual. The first buzz after a while takes longest, so test again."
+        else "That’s slower than usual. Google Health may have been syncing with it, so test again."),
 }
 
 fun gradeOf(ms: Long): Grade {
@@ -657,8 +657,11 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String
         Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label(dayLabel, Modifier.weight(1f).then(dayFade))
-                DayArrow(Glyph.BACK, "Previous day", daysAgo < 6) { go(older = true) }
-                DayArrow(Glyph.CHEVRON, "Next day", daysAgo > 0) { go(older = false) }
+                // The targets touch, and the row reaches 8 dp past the edge, so the circles sit where the 32 dp ones did.
+                Row(Modifier.offset(x = 8.dp)) {
+                    DayArrow(Glyph.BACK, "Previous day", daysAgo < 6) { go(older = true) }
+                    DayArrow(Glyph.CHEVRON, "Next day", daysAgo > 0) { go(older = false) }
+                }
             }
             val dragState = rememberDraggableState { d ->
                 val past = (shift.value + d > 0 && daysAgo >= 6) || (shift.value + d < 0 && daysAgo <= 0)
@@ -679,7 +682,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String
                 .graphicsLayer { translationX = shift.value; alpha = fade.value }, height = 44.dp, tall = 26.dp, short = 9.dp, hours = true, line = if (daysAgo == 0) Modifier.todayLine() else Modifier)
         }
         if (!compact) Box(dayFade) { Totals(buzzed, ignored, 40, 44, 40, Alignment.Start) }
-        Text("AirBuzz saw ${day.size} calls and messages $word. Ignored ones reached your phone, but your rules kept them off your wrist. Tap an app to let it buzz.",
+        Text("AirBuzz saw ${if (day.size == 1) "1 call or message" else "${day.size} calls and messages"} $word. Ignored ones reached your phone, but your rules kept them off your wrist. Tap an app to let it buzz.",
             style = Type.small, color = a.muted, modifier = dayFade.padding(vertical = 8.dp))
         Seg(listOf(0 to "All", 1 to "Buzzed", 2 to "Ignored"), filter, track = LocalAirColors.current.surface) { filter = it }
         Column(dayFade, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -695,7 +698,7 @@ fun ActivityScreen(engine: Engine, open: (SheetKind) -> Unit, openChats: (String
                     GroupRow(kind?.let { { if (it == SheetKind.CHATS) openChats(e.pkg) else open(it) } }, vertical = 10.dp) {
                         // A long reason, such as "cleared by WhatsApp first", takes a second line rather than being cut.
                         TwoLine(src.first, Modifier.weight(1f)) {
-                            Label(src.second, wrap = true)
+                            Sub(src.second)
                             kind?.let { Text("Change in ${if (it == SheetKind.CHATS) "${e.appLabel} chats" else sheetName(it)}", style = Type.smallMedium, color = a.accent) }
                         }
                         Text("${list.size}", style = Type.bodyMedium.copy(fontFeatureSettings = "tnum"), color = a.ink)
@@ -755,10 +758,15 @@ private fun Totals(buzzed: Int, ignored: Int, size: Int, line: Int, gap: Int, al
 private fun DayArrow(glyph: Glyph, label: String, enabled: Boolean, onClick: () -> Unit) {
     val a = LocalAirColors.current
     Box(
-        Modifier.size(32.dp).alpha(if (enabled) 1f else 0.38f).clip(CircleShape).border(1.dp, a.line, CircleShape)
+        // A 48 dp target around the drawn 32 dp circle; a disabled arrow draws no circle (design review, 0.9.1).
+        Modifier.size(48.dp).clip(CircleShape)
             .clickable(enabled, onClickLabel = label, role = Role.Button, onClick = onClick).semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
-    ) { GlyphIcon(glyph, 16.dp, a.ink) }
+    ) {
+        Box(Modifier.size(32.dp).then(if (enabled) Modifier.border(1.dp, a.line, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
+            GlyphIcon(glyph, 16.dp, if (enabled) a.ink else a.line)
+        }
+    }
 }
 
 @Composable

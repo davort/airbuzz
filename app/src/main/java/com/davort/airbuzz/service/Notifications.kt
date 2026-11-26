@@ -47,13 +47,13 @@ object Notifications {
             description = "Something, such as Bluetooth being off, will stop your Fitbit Air buzzing. Silent."
         })
         nm.createNotificationChannel(NotificationChannel(MISSED_CHANNEL, "Missed alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "A call or message didn't reach your Fitbit Air, with why and the fix."
+            description = "A call or message didn’t reach your Fitbit Air, with why and the fix."
         })
     }
 
     /** The silent notification while Bluetooth is off; tapping it opens AirBuzz, Turn on opens Bluetooth settings. */
     fun showBluetoothOff(context: Context) {
-        val n = builder(context, PROBLEMS_CHANNEL, "Bluetooth is off", "Your Fitbit Air won't buzz until it's back on",
+        val n = builder(context, PROBLEMS_CHANNEL, "Bluetooth is off", "Your Fitbit Air won’t buzz until it’s back on",
             "Turn on", Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -73,7 +73,7 @@ object Notifications {
         // Caller and chat names stay off the lock screen.
         val public = NotificationCompat.Builder(context, MISSED_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_buzz)
-            .setContentTitle("An alert didn't reach your Fitbit Air")
+            .setContentTitle("An alert didn’t reach your Fitbit Air")
             .build()
         val n = builder(context, MISSED_CHANNEL, title, text, fixLabel, fix)
             .setCategory(NotificationCompat.CATEGORY_ERROR)

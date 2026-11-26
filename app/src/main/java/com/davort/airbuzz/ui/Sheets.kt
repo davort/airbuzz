@@ -336,7 +336,7 @@ fun PeopleSheet(engine: Engine, s: Settings, onClose: () -> Unit, openQuiet: () 
     val entries by engine.log.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     Sheet("People who ring", onClose) {
-        CallChoice(s.callMode, s.people, icon = true) { m -> engine.store.update { it.copy(callMode = m) } }
+        CallChoice(s.callMode, s.people) { m -> engine.store.update { it.copy(callMode = m) } }
         ScrollUnderFade {
             // Only Chosen has a list.
             if (s.callMode == CallMode.CHOSEN) {
@@ -392,13 +392,13 @@ fun ColumnScope.ScrollUnderFade(content: @Composable ColumnScope.() -> Unit) {
         verticalArrangement = Arrangement.spacedBy(Space.SECTION.dp), content = content)
 }
 
-/** An icon in a soft circle beside one sentence that says what the chosen mode does. */
+/** The three choices, then one sentence that says what the chosen mode does. */
 /**
  * Who can ring, as one choice and what it will do (Davor, 15 Nov): the choice, then one future-tense sentence with
  * the who in the accent, and a quieter line for every other call. Onboarding's step and the sheet on Home share it.
  */
 @Composable
-fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSelect: (CallMode) -> Unit) {
+fun CallChoice(mode: CallMode, people: List<Person>, onSelect: (CallMode) -> Unit) {
     val a = LocalAirColors.current
     Column {
         // Widest first, as Anyone is the default: missing a call that mattered is worse than an extra buzz (Davor, 26 Nov).
@@ -411,22 +411,16 @@ fun CallChoice(mode: CallMode, people: List<Person>, icon: Boolean = false, onSe
                 0 -> Triple("Only ", "the people you add", "Until you add someone, no call will ring it.")
                 1 -> Triple("Only calls from ", names[0], other)
                 2 -> Triple("Only calls from ", "${names[0]} and ${names[1]}", other)
-                // As on Home's Calls rule.
-                else -> Triple("Only calls from ", "${names[0]} and ${names.size - 1}\u00A0more", other)
+                // As on Home's Calls rule; "and 8 more" stays on one line with the name.
+                else -> Triple("Only calls from ", "${names[0]}\u00A0and\u00A0${names.size - 1}\u00A0more", other)
             }
-            CallMode.CONTACTS -> Triple("", "Everyone in your contacts", "Numbers you haven't saved will ring only your\u00A0phone.")
-            CallMode.ANYONE -> Triple("", "Every call", "Even from numbers you haven't\u00A0saved.")
+            CallMode.CONTACTS -> Triple("", "Everyone in your contacts", "Numbers you haven’t saved will ring only your\u00A0phone.")
+            CallMode.ANYONE -> Triple("", "Every call", "Even from numbers you haven’t\u00A0saved.")
         }
-        // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes. The sheet
-        // on Home shows the choice's icon above it; onboarding's step already has its own icon, so it shows none.
+        // Read as one sentence by a screen reader; the panel eases to the new height when the sentence changes.
+        // No icon above it: the sentence already says who rings (design review, 0.9.1).
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = Space.SECTION.dp, bottom = (Space.SECTION - Space.TIGHT).dp)
             .animateContentSize(tween(220, easing = Motion.InOut)).semantics(mergeDescendants = true) {}) {
-            if (icon) {
-                Box(Modifier.size(48.dp).clip(CircleShape).background(a.bg), contentAlignment = Alignment.Center) {
-                    CurveIcon(when (mode) { CallMode.CHOSEN -> Curve.PEOPLE; CallMode.CONTACTS -> Curve.CONTACTS; CallMode.ANYONE -> Curve.CALLING }, 24.dp, a.ink, 1.8f)
-                }
-                Gap(Space.INLINE)
-            }
             Text(buildAnnotatedString {
                 append(before)
                 withStyle(SpanStyle(color = a.accent, fontWeight = FontWeight(500))) { append(who) }
@@ -508,7 +502,7 @@ fun PeopleRows(people: List<Person>, topLine: Boolean = true, onChange: (List<Pe
                     onChange(people - p)
                 }) {
                     PersonPhoto(p)
-                    TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
+                    TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } ?: Sub("Matched by name") }
                 }
             }
         }
@@ -639,7 +633,7 @@ private fun UndoRow(p: Person, onUndo: () -> Unit, onFold: () -> Unit, onGone: (
 @Composable
 fun SearchField(query: String, hint: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     val a = LocalAirColors.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
         .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         CurveIcon(Curve.SEARCH, 18.dp, a.muted)
         Spacer(Modifier.width(12.dp))
@@ -679,11 +673,11 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
                     val n = weekCounts[app.pkg] ?: 0
                     if (chats) TwoLine(app.label, Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Label(chatsSummary(s.chats[app.pkg]), color = a.accent)
+                            Sub(chatsSummary(s.chats[app.pkg]), color = a.accent)
                             Spacer(Modifier.width(2.dp))
                             GlyphIcon(Glyph.CHEVRON, 12.dp, a.accent, 3f)
                         }
-                    } else TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Label("$n this week") }) else null)
+                    } else TwoLine(app.label, Modifier.weight(1f), if (n > 0) ({ Sub("$n this week") }) else null)
                     // Every row keeps its checkbox in the same 48 dp box, so ticking WhatsApp on or off doesn't change
                     // the row's height (Davor, 24 Nov). The box sits flush with the row's end, like the other marks.
                     Box(Modifier.offset(x = 13.dp).size(48.dp).clip(CircleShape)
@@ -756,7 +750,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
     val a = LocalAirColors.current
     Column {
         LineRow(true, onClick = { update { it.copy(quietHours = !it.quietHours) } }) {
-            TwoLine("At night", Modifier.weight(1f)) { Label("${clock(s.quietStart)}–${clock(s.quietEnd)}") }
+            TwoLine("At night", Modifier.weight(1f)) { Sub("${clock(s.quietStart)}–${clock(s.quietEnd)}") }
             AirSwitch(s.quietHours, { on -> update { it.copy(quietHours = on) } })
         }
         if (s.quietHours) Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -764,16 +758,16 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             Pill("Ends ${clock(s.quietEnd)}", { editTime(false) }, filled = false, small = true)
         }
         LineRow(false, onClick = { update { it.copy(quietDnd = !it.quietDnd) } }) {
-            TwoLine("In Do Not Disturb", Modifier.weight(1f)) { Label("Follows the phone") }
+            TwoLine("In Do Not Disturb", Modifier.weight(1f)) { Sub("Follows the phone") }
             AirSwitch(s.quietDnd, { on -> update { it.copy(quietDnd = on) } })
         }
         LineRow(false, onClick = { update { it.copy(quietInUse = !it.quietInUse) } }) {
-            TwoLine("While I use the phone", Modifier.weight(1f)) { Label("Screen on and unlocked") }
+            TwoLine("While I use the phone", Modifier.weight(1f)) { Sub("Screen on and unlocked") }
             AirSwitch(s.quietInUse, { on -> update { it.copy(quietInUse = on) } })
         }
         // Off by default with nobody in it: nobody rings through quiet times until people are added (decision 42).
         LineRow(false, onClick = { update { it.copy(ringAnyway = !it.ringAnyway) } }) {
-            TwoLine("Let some people ring anyway", Modifier.weight(1f)) { Label(if (s.ringAnyway) "Through quiet times and pauses" else "Off") }
+            TwoLine("Let some people ring anyway", Modifier.weight(1f)) { Sub(if (s.ringAnyway) "Through quiet times and pauses" else "Off") }
             AirSwitch(s.ringAnyway, { on -> update { it.copy(ringAnyway = on) } })
         }
         if (s.ringAnyway) Text(when (s.callMode) {
@@ -785,7 +779,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
             TextAction("Add people", pick)
             PeopleRows(s.ringAnywayPeople) { list -> update { it.copy(ringAnywayPeople = list) } }
         }
-        if (!s.ringAnyway) Text("While it's off, quiet times silence every call.", style = Type.small, color = a.muted)
+        if (!s.ringAnyway) Text("While it’s off, quiet times silence every call.", style = Type.small, color = a.muted)
     }
     // In Chosen, ring anyway picks from the chosen callers, so everyone added can ring (Davor, 18 Nov). Someone else
     // picked from contacts becomes a chosen caller too. Anyone on the list who isn't chosen, from before or from
@@ -799,7 +793,7 @@ fun QuietBody(s: Settings, update: ((Settings) -> Settings) -> Unit, pick: () ->
         val rest = s.people.filter { p -> ringingAnyway(s).none { it == p || (p.number != null && it.number == p.number) } }
         val waiting = s.ringAnywayPeople.filter { !isChosen(s, it) }
         if (waiting.isNotEmpty()) Column {
-            Label("Can't ring yet · not in People who ring")
+            Label("Can’t ring yet · not in People who ring")
             Gap(Space.HINT)
             waiting.forEachIndexed { i, p ->
                 LineRow(i == 0) {
@@ -866,7 +860,7 @@ fun PauseBody(options: List<Pair<String, Long?>>, choice: Int, note: String, onC
         options.forEachIndexed { i, (name, until) ->
             LineRow(i == 0, onClick = { onChoose(i) }) {
                 Mark(choice == i, radio = true)
-                TwoLine(name, Modifier.weight(1f)) { Label(until?.let { "until ${timeOf(it)}" } ?: "nothing buzzes") }
+                TwoLine(name, Modifier.weight(1f)) { Sub(until?.let { "Until ${timeOf(it)}" } ?: "Nothing buzzes") }
             }
         }
     }

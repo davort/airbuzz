@@ -153,9 +153,11 @@ private fun StepBar(step: Int, onBack: () -> Unit) {
 
 /** The shape every step shares: a picture on the text edge, a serif title, one muted sentence, then the step's own content. */
 @Composable
-private fun StepHead(title: String, body: String, art: @Composable () -> Unit) {
+private fun StepHead(title: String, body: String, art: (@Composable () -> Unit)? = null) {
     val a = LocalAirColors.current
-    Box(Modifier.fillMaxWidth().height(104.dp).padding(bottom = 20.dp), contentAlignment = Alignment.BottomStart) { art() }
+    // Only a step about the Fitbit Air itself shows a picture; a generic icon above the title only repeated it (design review, 0.9.1).
+    if (art != null) Box(Modifier.fillMaxWidth().height(104.dp).padding(bottom = 20.dp), contentAlignment = Alignment.BottomStart) { art() }
+    else Spacer(Modifier.height(32.dp))
     Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = Type.heading, color = a.ink, modifier = Modifier.semantics { heading() })
         // Body size, not small: at 14 sp every step looked empty beside the heading and the button (issue #19).
@@ -191,14 +193,6 @@ private fun StepFoot(main: String, onMain: () -> Unit, enabled: Boolean = true, 
     }
 }
 
-@Composable
-private fun IconCircle(curve: Curve) {
-    val a = LocalAirColors.current
-    Box(Modifier.size(64.dp).clip(CircleShape).background(a.surface).border(1.dp, a.line, CircleShape), contentAlignment = Alignment.Center) {
-        CurveIcon(curve, 28.dp, a.ink, 1.8f)
-    }
-}
-
 /** What Android is about to ask, quoted before it asks. */
 @Composable
 private fun AndroidAsks(question: String) {
@@ -218,14 +212,14 @@ private fun Done(text: String) {
     }
 }
 
-/** One row of a step's checklist: a title over a small label, and its state or button on the right. */
+/** One row of a step's checklist: a title over a small muted line, and its state or button on the right. */
 @Composable
 private fun CheckRow(title: String, label: String, muted: Boolean = false, end: @Composable () -> Unit) {
     val a = LocalAirColors.current
     GroupRow(vertical = 12.dp) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = Type.bodyMedium, color = if (muted) a.muted else a.ink)
-            Text(label.uppercase(), style = Type.label, color = a.muted)
+            Sub(label)
         }
         end()
     }
@@ -339,7 +333,7 @@ private fun ColumnScope.FindAir(next: () -> Unit, skip: () -> Unit) {
         }
     }) {
         StepHead("Find your Fitbit\u00A0Air", "AirBuzz talks to it over Bluetooth, using the pairing Google Health already made.") {
-            if (found) AirPebble(64.dp) else IconCircle(Curve.BLUETOOTH)
+            AirPebble(64.dp, if (found) Buzz.REST else Buzz.CONNECTING)
         }
         when {
             !nearby && blocked -> Group(listOf({ Column {
@@ -371,9 +365,7 @@ private fun ColumnScope.KeepRunning(noAir: Boolean, next: () -> Unit) {
     // Linking can fail when Android doesn't find the Air, and a phone may not report the battery setting; then the
     // step lets you go on (after a visit to the page) and Setup keeps the row.
     Step({ StepFoot("Next", next, enabled = (linked || error != null || noAir) && (allowed || opened)) }) {
-        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit\u00A0Air.") {
-            IconCircle(Curve.LINK)
-        }
+        StepHead("Keep AirBuzz running", "Phones stop apps running in the background to save battery. These two settings keep AirBuzz awake for your Fitbit\u00A0Air.")
         val rows = listOf<@Composable () -> Unit>(
             // Without a Fitbit Air there is nothing to link yet; the Setup checklist offers it once one is paired.
             { CheckRow("Link your Fitbit Air", if (noAir && !linked) "After you pair it" else "Android asks once", muted = noAir && !linked) {
@@ -427,18 +419,16 @@ private fun ColumnScope.SeeAlerts(next: () -> Unit) {
     val on = remember(tick) { Setup.hasListener(context) }
     val notices = remember(tick) { Setup.hasPostNotifications(context) }
     Step({ StepFoot("Next", next, enabled = on) }) {
-        StepHead("See calls and messages", "AirBuzz reads which app a notification came from and who sent it. It never keeps message text.") {
-            IconCircle(Curve.BELL)
-        }
+        StepHead("See calls and messages", "AirBuzz reads which app a notification came from and who sent it. It never keeps message text.")
         Group(listOf(
             { CheckRow("Notification access", if (on) "So AirBuzz sees alerts" else "Turn on AirBuzz there") {
                 if (on) Done("On") else Pill("Open", { fixer(Fix.LISTENER) }, small = true)
             } },
-            { CheckRow("AirBuzz notifications", "When a buzz didn't arrive") {
+            { CheckRow("AirBuzz notifications", "When a buzz didn’t arrive") {
                 if (notices) Done("On") else Pill("Allow", { fixer(Fix.NOTIFICATIONS) }, small = true)
             } },
         ))
-        Text("They tell you when an alert didn't reach your Fitbit Air or Bluetooth is off, and let you silence a call that's ringing it.",
+        Text("They tell you when an alert didn’t reach your Fitbit Air or Bluetooth is off, and let you silence a call that’s ringing it.",
             style = Type.small, color = a.muted)
     }
 }
@@ -450,9 +440,7 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
     val pick = rememberContactPicker(engine)
     // Anyone is already chosen, so there is nothing to put off: Next keeps it (Davor, 26 Nov).
     Step({ StepFoot("Next", next) }) {
-        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls buzz it every second until you answer. You can narrow it down any\u00A0time.") {
-            IconCircle(Curve.PHONE)
-        }
+        StepHead("Who should ring your Fitbit\u00A0Air?", "Their calls buzz it every second until you answer. You can narrow it down any\u00A0time.")
         // The choice and what it will do share one panel; Chosen's people and Add people continue it (Davor, 15 Nov).
         val rows = mutableListOf<@Composable () -> Unit>({
             Box(Modifier.padding(16.dp)) { CallChoice(s.callMode, s.people) { m -> engine.store.update { it.copy(callMode = m) } } }
@@ -461,7 +449,7 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
             s.people.forEach { p ->
                 rows += { GroupRow(vertical = 10.dp) {
                     PersonPhoto(p)
-                    TwoLine(p.name, Modifier.weight(1f)) { Label(p.number?.let(Rules::display) ?: "Matched by name") }
+                    TwoLine(p.name, Modifier.weight(1f)) { p.number?.let { Label(Rules.display(it)) } ?: Sub("Matched by name") }
                 } }
             }
             rows += { Box(Modifier.padding(horizontal = 20.dp)) { TextAction("Add people", pick) } }
@@ -489,9 +477,7 @@ private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit,
     }
     val shown = added + first
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
-        StepHead("Which apps should buzz your Fitbit\u00A0Air?", "A message from one of these buzzes it once. Everything else stays on your phone.") {
-            IconCircle(Curve.APPS)
-        }
+        StepHead("Which apps should buzz your Fitbit\u00A0Air?", "A message from one of these buzzes it once. Everything else stays on your phone.")
         Group(shown.map { app ->
             @Composable {
                 GroupRow(vertical = 10.dp) {
@@ -556,7 +542,7 @@ private fun ColumnScope.YoureSet(engine: Engine, s: Settings) {
     val wave = remember { Animatable(0f) }
     LaunchedEffect(Unit) { wave.animateTo(1f, tween(700, 260, Motion.Out)) }
     Bookend(
-        title = "You're set",
+        title = "You’re set",
         body = setUpSummary(s) { appLabel(context, it) },
         note = "To change anything later, tap Your Fitbit\u00A0Air at the bottom of Home.",
         button = "Start using AirBuzz",

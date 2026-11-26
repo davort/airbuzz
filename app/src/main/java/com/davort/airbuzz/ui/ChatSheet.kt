@@ -358,7 +358,7 @@ private fun ChatRow(o: ChatOption, on: Boolean, sub: String?, first: Boolean, wr
             else if (o.group) CurveIcon(Curve.PEOPLE, 18.dp, a.ink, 1.8f)
             else Text(o.name.take(1).uppercase(), style = Type.bodyMedium, color = a.ink)
         }
-        TwoLine(o.name, Modifier.weight(1f), sub?.let { { Label(it) } })
+        TwoLine(o.name, Modifier.weight(1f), sub?.let { { Sub(it) } })
         Mark(on, radio = false)
     }
 }
@@ -406,7 +406,7 @@ private fun TypeChat(hint: String, onDone: (String) -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
+        Box(Modifier.weight(1f).heightIn(min = 48.dp).clip(CircleShape).border(1.dp, a.outline, CircleShape)
             .padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
             if (name.isEmpty()) Text(hint, style = Type.body, color = a.muted)
             BasicTextField(name, { name = it }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,

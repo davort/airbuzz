@@ -299,17 +299,23 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                     val pressed = rememberHeldPress(interaction)
                     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(if (pressed) 100 else 150, easing = Motion.Out), label = "press")
                     val scope = rememberCoroutineScope()
-                    Row(
+                    // The touch area takes the sentence's whole 34 dp line; the tint is drawn 30 dp tall inside it (design review, 0.9.1).
+                    Box(
                         Modifier
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (pressed || part.open) a.tintStrong else a.tint)
+                            .height(34.dp)
                             .clickable(interaction, indication = null) { scope.launch { delay(100); part.onClick() } }
                             .clearAndSetSemantics {
                                 role = Role.Button
                                 contentDescription = "${part.label}: ${part.value}"
-                            }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                    Row(
+                        Modifier
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (pressed || part.open) a.tintStrong else a.tint)
                             .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -318,6 +324,7 @@ fun Sentence(parts: List<Part>, modifier: Modifier = Modifier, style: TextStyle 
                         Text(shown, style = blankStyle, color = a.accent, softWrap = false, maxLines = 1)
                         Spacer(Modifier.width(3.dp))
                         Caret(a.accent)
+                    }
                     }
                     if (part.after.isNotEmpty()) Text(part.after, style = style, color = a.ink, softWrap = false)
                 }
@@ -544,6 +551,14 @@ fun TwoLine(title: String, modifier: Modifier = Modifier, sub: (@Composable () -
         sub?.invoke()
     }
 }
+
+/**
+ * A row's second line in small muted sentence case. Mono capitals stay for section labels, counters and phone
+ * numbers; on every second line they made all the quiet text shout (design review, 0.9.1).
+ */
+@Composable
+fun Sub(text: String, color: Color = LocalAirColors.current.muted) =
+    Text(text.replaceFirstChar { it.uppercase() }, style = Type.small, color = color)
 
 /** Taps as dots, a ring as bars fading into dots; shown only in the pattern pickers (decision 22). */
 @Composable

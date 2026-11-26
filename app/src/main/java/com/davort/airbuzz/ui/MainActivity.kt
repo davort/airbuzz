@@ -501,9 +501,9 @@ fun storeDemo(context: android.content.Context) =
 fun firstProblem(context: android.content.Context, lastError: String?, notAnswering: Boolean, reached: Long?, heard: Long? = null): Problem? = when {
     storeDemo(context) -> null
     !Setup.bluetoothOn(context) -> Problem("Bluetooth is off", "Your Fitbit Air needs it", "Turn on", Curve.BLUETOOTH_OFF, Fix.PAIR)
-    !Setup.hasNearby(context) -> Problem("Can't use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
+    !Setup.hasNearby(context) -> Problem("Can’t use Bluetooth", "Nearby devices is off", "Allow", Curve.BLUETOOTH_OFF, Fix.NEARBY)
     Setup.bondedAirAddress(context) == null -> Problem("No Fitbit Air paired", "Pair it in Google Health", "Set up", Curve.BLUETOOTH_OFF, null)
-    !Setup.hasListener(context) -> Problem("Can't see alerts", "Notification access is off", "Allow", Curve.BELL_OFF, Fix.LISTENER)
+    !Setup.hasListener(context) -> Problem("Can’t see alerts", "Notification access is off", "Allow", Curve.BELL_OFF, Fix.LISTENER)
     lastError != null && notAnswering -> Problem("Fitbit Air not answering", heard?.let { "Last heard ${timeOf(it)}" } ?: "Not heard yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
     lastError != null -> Problem("Fitbit Air out of reach", reached?.let { "Last reached ${timeOf(it)}" } ?: "Not reached yet", "Fix", Curve.SIGNAL_OFF, Fix.TEST)
     else -> null
@@ -657,7 +657,7 @@ fun describe(e: Entry): Pair<String, String> {
             e.count > 1 -> "${e.count} messages, 1 buzz"
             else -> "Buzzed"
         }
-        Fate.FAILED -> if (call) "Call, couldn't reach your Fitbit Air" else "Couldn't reach your Fitbit Air"
+        Fate.FAILED -> if (call) "Call, couldn’t reach your Fitbit Air" else "Couldn’t reach your Fitbit Air"
         // An app or caller that wasn't picked reads "Ignored", the word the Today line and Activity count it under.
         Fate.IGNORED -> (if (e.reason == "not chosen") "Ignored" else reasonLabel(e)).let { if (call) "Call, ${it.lowercase()}" else it }
     }

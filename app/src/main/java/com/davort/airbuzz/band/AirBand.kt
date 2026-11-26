@@ -205,7 +205,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var stopRequested = false
     private var strength = 0
     private val phases = LinkedHashMap<String, Long>()
-    private val connectTimeout = Runnable { fail("Couldn't reach your Fitbit Air within ${CONNECT_TIMEOUT_MS / 1000} s.") }
+    private val connectTimeout = Runnable { fail("Couldn’t reach your Fitbit Air within ${CONNECT_TIMEOUT_MS / 1000} s.") }
 
     val busy: Boolean get() = onDone != null
 
@@ -428,13 +428,13 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) linkUp = false
             if (!busy) {
                 // Between commands: open a warm link's services, or ask again for a link that dropped.
-                if (!linkUp) linkFailed(if (warming) "couldn't connect (status $status)" else "dropped (status $status)")
+                if (!linkUp) linkFailed(if (warming) "couldn’t connect (status $status)" else "dropped (status $status)")
                 else if (warming) g.discoverServices()
                 return@onMain
             }
             // A dead link cannot carry the hand-off, so skip it by clearing sessionStarted.
             when {
-                status != BluetoothGatt.GATT_SUCCESS -> { sessionStarted = false; fail("Couldn't connect to your Fitbit Air (status $status).") }
+                status != BluetoothGatt.GATT_SUCCESS -> { sessionStarted = false; fail("Couldn’t connect to your Fitbit Air (status $status).") }
                 newState == BluetoothProfile.STATE_CONNECTED -> { mark("connected"); g.discoverServices() }
                 newState == BluetoothProfile.STATE_DISCONNECTED -> { sessionStarted = false; fail("Your Fitbit Air disconnected.") }
             }
@@ -445,7 +445,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             val service = g.getService(TRACKER)
             val tx = service?.getCharacteristic(TX)
             val rx = service?.getCharacteristic(RX)
-            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Fitbit Air's tracker channel is missing.")
+            if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Fitbit Air’s tracker channel is missing.")
             txCharacteristic = tx
             rxCharacteristic = rx
             if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel.")
@@ -645,7 +645,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 // Android stopped routing notifications to this client, so try a connection of its own; silence there,
                 // before the Air has said anything in this command, means it isn't answering at all.
                 if (onOpenLink) reconnectFresh(g.device, "nothing received")
-                else if (!heardBand) { bandSilent = true; fail("Your Fitbit Air didn't answer. Try again in a moment.") }
+                else if (!heardBand) { bandSilent = true; fail("Your Fitbit Air didn’t answer. Try again in a moment.") }
             }.also { main.postDelayed(it, if (onOpenLink) OPEN_LINK_SILENCE_MS else BAND_SILENCE_MS) }
             log("Starting the secure session (attempt $handshakeAttempts)")
             s.start()
@@ -698,7 +698,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val current: Single<Int> = if (cached != null) Single.just(cached) else readStrength(ep)
         disposables.add(current.subscribe(
             { s -> main.post { strength = s; nextTap(ep, 0) } },
-            { e -> main.post { fail("Couldn't read the strength: ${e.message}") } },
+            { e -> main.post { fail("Couldn’t read the strength: ${e.message}") } },
         ))
     }
 

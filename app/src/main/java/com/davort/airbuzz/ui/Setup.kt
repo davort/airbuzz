@@ -82,7 +82,7 @@ object Setup {
         add(Check("Notifications", "Shows Silence while a call rings your Fitbit Air.", hasPostNotifications(c), "Allow", Fix.NOTIFICATIONS))
         add(Check("Run in the background", "Links AirBuzz to your Fitbit Air in Android, so Android lets it keep running in the background.",
             isAssociated(c), "Link", Fix.COMPANION))
-        if (isXiaomi) add(Check("Xiaomi Autostart", "On Xiaomi phones, also turn on Autostart for AirBuzz. AirBuzz can't check this.",
+        if (isXiaomi) add(Check("Xiaomi Autostart", "On Xiaomi phones, also turn on Autostart for AirBuzz. AirBuzz can’t check this.",
             null, "Open", Fix.AUTOSTART))
         add(Check("Test buzz", "Checks the whole path to your Fitbit Air.", testedOk, "Test", Fix.TEST))
     }
@@ -136,7 +136,7 @@ object Setup {
             // "canceled" or "discovery_timeout" (#16), so people see plain words instead.
             override fun onFailure(error: CharSequence?) = failed(when (error?.toString()) {
                 "user_rejected", "canceled" -> "Not linked yet. You can link your Fitbit\u00A0Air any time from Settings → Setup checklist."
-                else -> "Android couldn't find your Fitbit\u00A0Air. You can link it any time from Settings → Setup checklist."
+                else -> "Android couldn’t find your Fitbit\u00A0Air. You can link it any time from Settings → Setup checklist."
             })
         }
         if (Build.VERSION.SDK_INT >= 33) cdm.associate(request, activity.mainExecutor, callback)

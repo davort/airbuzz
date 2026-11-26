@@ -302,7 +302,7 @@ class Engine(private val app: Context) {
                 var latency: Long? = null
                 // A ring goes ahead of queued message taps.
                 queue.addFirst(Job(BandCommand.Ring(strength), ringKey = key, giveUpAt = start + RING_RETRY_FOR_MS, what = "call",
-                    alertAt = start, missTitle = "$who called · your Fitbit Air didn't ring",
+                    alertAt = start, missTitle = "$who called · your Fitbit Air didn’t ring",
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     Notifications.cancelRinging(app)
                     bandState.value = bandState.value.copy(ringingWho = null)
@@ -360,7 +360,7 @@ class Engine(private val app: Context) {
                 var latency: Long? = null
                 queue.addLast(Job(BandCommand.Taps(settings.messageTaps, strength), giveUpAt = start + MESSAGE_RETRY_FOR_MS,
                     what = "$appLabel message", alertAt = start,
-                    missTitle = "${if (who != null) "$who on $appLabel" else "$appLabel message"} · your Fitbit Air didn't buzz", alertKey = key,
+                    missTitle = "${if (who != null) "$who on $appLabel" else "$appLabel message"} · your Fitbit Air didn’t buzz", alertKey = key,
                     buzzed = { latency = SystemClock.elapsedRealtime() - start }) { r ->
                     log.updateLast({ it.time == entry.time && it.pkg == pkg }) {
                         if (r.taps > 0) it.copy(latencyMs = latency)
@@ -603,7 +603,7 @@ class Engine(private val app: Context) {
         if (!settings.enabled || bandState.value.lastError != null) return
         note("Open link: heard nothing from the Fitbit Air for 20 min; Home shows it not answering")
         silentWarned = true
-        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air isn't answering.", notAnswering = true)
+        bandState.value = bandState.value.copy(lastError = "Your Fitbit Air isn’t answering.", notAnswering = true)
     }
 
     private fun clearSilentWarning() {
@@ -693,10 +693,10 @@ class Engine(private val app: Context) {
     /** Why an alert didn't reach the Air, as the notification says it, with the one fix when there is one. */
     private enum class Cause(val text: String, val fixLabel: String?) {
         BLUETOOTH_OFF("Bluetooth is off", "Turn on"),
-        NEARBY("AirBuzz isn't allowed to use Nearby devices", "Allow"),
+        NEARBY("AirBuzz isn’t allowed to use Nearby devices", "Allow"),
         NO_AIR("No Fitbit Air is paired with this phone", null),
         GOOGLE_HEALTH("Google Health kept your Fitbit Air busy", null),
-        SILENT("Your Fitbit Air didn't answer", null),
+        SILENT("Your Fitbit Air didn’t answer", null),
         OUT_OF_REACH("Your Fitbit Air was out of reach", null),
     }
 
@@ -754,9 +754,9 @@ class Engine(private val app: Context) {
         // The notification stays until tapped or swiped, even after a later buzz gets through, and counts every alert
         // missed while it shows (Davor, 17 Nov).
         missedShown = titles.size + if (Notifications.missedShowing(app)) missedShown else 0
-        val title = if (missedShown == 1) titles.single() else "$missedShown alerts didn't reach your Fitbit Air"
+        val title = if (missedShown == 1) titles.single() else "$missedShown alerts didn’t reach your Fitbit Air"
         // A message gives up after 3 min of silence (Davor's wording, 17 Nov); a call after its ring, so it says less.
-        val text = if (cause == Cause.SILENT && !call) "Your Fitbit Air didn't answer for 3 minutes. It usually comes back by itself."
+        val text = if (cause == Cause.SILENT && !call) "Your Fitbit Air didn’t answer for 3 minutes. It usually comes back by itself."
             else cause.text
         note("Notification: $missedShown missed (${cause.text})")
         Notifications.showMissed(app, title, text, cause.fixLabel,
