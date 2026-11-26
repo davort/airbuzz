@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -72,11 +74,6 @@ private const val STEPS = 6
 private const val INTRO = 0
 private const val DONE = STEPS + 1
 
-/** Messaging apps offered first on the apps step, when installed. */
-private val MESSENGERS = listOf(
-    "com.whatsapp", "org.thoughtcrime.securesms", "org.telegram.messenger", "com.google.android.apps.messaging",
-    "com.facebook.orca", "com.Slack", "com.google.android.gm", "com.viber.voip", "com.discord",
-)
 
 /**
  * Onboarding (decision 39): an intro, six steps with one ask each, and "You're set", shown on launch until it is
@@ -242,7 +239,12 @@ private fun ColumnScope.Bookend(title: String, body: String, note: String, butto
     val a = LocalAirColors.current
     Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         // The rings reach 18 dp past the capsule.
-        Box(Modifier.padding(18.dp)) { AirPebble(120.dp, Buzz.TAPPED, wave = wave) }
+        Box(Modifier.padding(18.dp)) {
+            AirPebble(120.dp, Buzz.TAPPED, wave = wave)
+            // A check on the capsule, so the last page reads as done, not as the intro again (Davor, 26 Nov).
+            Box(Modifier.align(Alignment.BottomEnd).offset(x = 12.dp, y = 12.dp).size(36.dp).clip(CircleShape).background(a.accent)
+                .border(3.dp, a.bg, CircleShape), contentAlignment = Alignment.Center) { GlyphIcon(Glyph.CHECK, 20.dp, a.onInk, 2.6f) }
+        }
         Gap(28)
         Text(title, style = Type.heading.copy(fontSize = 36.sp, lineHeight = 40.sp), color = a.ink, textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() })
@@ -263,8 +265,8 @@ private object IntroAt {
 
 /**
  * The first-launch intro (issue #26): the wordmark, the Fitbit Air, the title and the sentence are all there from the
- * first frame, and 1.5 s in the Fitbit Air buzzes once. With Remove animations on, or once it has played, it shows the
- * buzzed end state straight away.
+ * first frame, and 1.5 s in the Fitbit Air buzzes, then again every 3 s. With Remove animations on it shows the buzzed
+ * end state and stays still.
  */
 @Composable
 private fun ColumnScope.Intro(played: Boolean, onPlayed: () -> Unit, next: () -> Unit) {
@@ -276,9 +278,17 @@ private fun ColumnScope.Intro(played: Boolean, onPlayed: () -> Unit, next: () ->
     }
     val t = remember { Animatable(if (played || reduceMotion) IntroAt.END else 0f) }
     LaunchedEffect(Unit) {
-        if (t.value >= IntroAt.END) return@LaunchedEffect
-        t.animateTo(IntroAt.END, tween(IntroAt.END.toInt(), easing = LinearEasing))
-        onPlayed()
+        if (reduceMotion) return@LaunchedEffect
+        if (t.value < IntroAt.END) {
+            t.animateTo(IntroAt.END, tween(IntroAt.END.toInt(), easing = LinearEasing))
+            onPlayed()
+        }
+        // Then it buzzes again every 3 s while the page is open, so it looks alive (Davor, 26 Nov).
+        while (true) {
+            delay(1900)
+            t.snapTo(IntroAt.BUZZ)
+            t.animateTo(IntroAt.END, tween((IntroAt.END - IntroAt.BUZZ).toInt(), easing = LinearEasing))
+        }
     }
     val now = t.value
     // The capsule twitches twice as in Test buzz, and two rings leave it.
@@ -461,11 +471,13 @@ private fun ColumnScope.WhoCanRing(engine: Engine, s: Settings, next: () -> Unit
 @Composable
 private fun ColumnScope.WhichApps(engine: Engine, s: Settings, more: () -> Unit, next: () -> Unit) {
     val apps = AppList.apps.collectAsStateWithLifecycle().value
+    val context = LocalContext.current
     val busy = remember { engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount() }
-    // Chosen apps, then known messengers, then the apps that notified most this week; six at most, fixed while open.
+    // Chosen apps, then messaging and email apps, then the apps that notified most this week; six at most, fixed while open.
     val shown = remember(apps == null) {
-        apps.orEmpty().sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in MESSENGERS }, { -(busy[it.pkg] ?: 0) }, { it.label.lowercase() }))
-            .filter { it.pkg in s.apps || it.pkg in MESSENGERS || (busy[it.pkg] ?: 0) > 0 }.take(6)
+        val talk = talkApps(context)
+        apps.orEmpty().sortedWith(appOrder(s, talk, busy))
+            .filter { it.pkg in s.apps || it.pkg in talk || (busy[it.pkg] ?: 0) > 0 }.take(6)
     }
     Step({ StepFoot("Next", next, link = "Later", onLink = next) }) {
         StepHead("Which apps should buzz your Fitbit\u00A0Air?", "A message from one of these buzzes it once. Everything else stays on your phone.") {

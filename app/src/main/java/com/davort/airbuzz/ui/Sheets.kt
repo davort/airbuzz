@@ -138,6 +138,30 @@ import kotlin.math.roundToInt
 
 data class AppInfo(val pkg: String, val label: String)
 
+/**
+ * Messaging and email apps, offered before every other app in onboarding and Apps that buzz (Davor, 26 Nov). The
+ * phone's own SMS app counts too, whoever makes it.
+ */
+private val TALK_APPS = setOf(
+    // Messaging
+    "com.whatsapp", "com.whatsapp.w4b", "org.thoughtcrime.securesms", "org.telegram.messenger", "org.telegram.messenger.web",
+    "com.google.android.apps.messaging", "com.samsung.android.messaging", "com.facebook.orca", "com.instagram.android",
+    "com.Slack", "com.microsoft.teams", "com.google.android.apps.dynamite", "com.viber.voip", "com.discord",
+    "ch.threema.app", "im.vector.app", "jp.naver.line.android", "com.tencent.mm", "com.kakao.talk", "com.snapchat.android",
+    "com.skype.raider", "com.wire", "network.loki.messenger", "com.beeper.android",
+    // Email
+    "com.google.android.gm", "com.microsoft.office.outlook", "ch.protonmail.android", "com.fastmail.app",
+    "com.samsung.android.email.provider", "com.readdle.spark", "com.yahoo.mobile.client.android.mail", "me.proton.android.mail",
+    "eu.faircode.email", "com.fsck.k9", "net.thunderbird.android", "com.superhuman.mail",
+)
+
+fun talkApps(context: Context): Set<String> =
+    TALK_APPS + listOfNotNull(runCatching { android.provider.Telephony.Sms.getDefaultSmsPackage(context) }.getOrNull())
+
+/** Chosen apps, then messaging and email apps, then the busiest this week, then by name. */
+fun appOrder(s: Settings, talk: Set<String>, week: Map<String, Int>) =
+    compareBy<AppInfo>({ it.pkg !in s.apps }, { it.pkg !in talk }, { -(week[it.pkg] ?: 0) }, { it.label.lowercase() })
+
 /** Apps in the launcher, which is all AirBuzz may list on Android 11 and later without asking for more. */
 fun installedApps(context: Context): List<AppInfo> {
     val pm = context.packageManager
@@ -641,8 +665,9 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
         engine.log.entries.value.filter { it.kind == Kind.MESSAGE }.groupingBy { it.pkg }.eachCount()
     }
     var query by remember { mutableStateOf("") }
-    // Chosen apps first, then the ones that notified most this week, then by name. Order is fixed while open.
-    val ordered = remember(apps == null) { apps?.sortedWith(compareBy<AppInfo>({ it.pkg !in s.apps }, { -(weekCounts[it.pkg] ?: 0) }, { it.label.lowercase() })) }
+    // Chosen apps first, then messaging and email apps, then the ones that notified most this week, then by name.
+    // Order is fixed while open.
+    val ordered = remember(apps == null) { apps?.sortedWith(appOrder(s, talkApps(context), weekCounts)) }
     Sheet("Apps that buzz", onClose) {
         SearchField(query, "Search apps") { query = it }
         // Lazy, so only the rows on screen are built and only their icons load.

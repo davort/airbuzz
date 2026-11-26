@@ -329,7 +329,8 @@ fun AirSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier 
  * tabs. The options sit on a 48 dp track; the selected one is a green tint with its label in the accent, which slides
  * to a new choice (Davor, 24 Nov). Every label keeps its weight and stays centred, so switching never moves one.
  * [PillChoice] is the ink-filled version for choices that decide what will happen. The track is the page colour on a
- * sheet; on a page, pass the surface colour so it shows.
+ * sheet; on a page, pass the surface colour so it shows. No press ripple: the sliding pill is the feedback, and a grey
+ * press under it read as a second, waiting selection (Davor, 26 Nov).
  */
 @Composable
 fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, track: Color = LocalAirColors.current.bg, onSelect: (T) -> Unit) {
@@ -339,11 +340,11 @@ fun <T> Seg(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Mo
     BoxWithConstraints(modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(track).padding(4.dp)) {
         val gap = 4.dp
         val w = (maxWidth - gap * (options.size - 1)) / options.size
-        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(if (a.dark) a.tint else a.accent.copy(alpha = 0.28f).compositeOver(a.surface)))
+        Box(Modifier.offset { IntOffset(((w + gap) * at).roundToPx(), 0) }.width(w).fillMaxHeight().clip(CircleShape).background(if (a.dark) a.tint else a.accent.copy(alpha = 0.20f).compositeOver(a.surface)))
         Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
             options.forEachIndexed { i, (value, label) ->
                 val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
-                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, role = Role.RadioButton) { onSelect(value) },
+                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, interactionSource = null, indication = null, role = Role.RadioButton) { onSelect(value) },
                     contentAlignment = Alignment.Center) {
                     Text(label, style = Type.smallMedium, color = lerp(a.muted, a.accent, on), maxLines = 1, softWrap = false)
                 }
@@ -369,7 +370,7 @@ fun <T> PillChoice(options: List<Pair<T, String>>, selected: T, onSelect: (T) ->
         Row(Modifier.fillMaxSize().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
             options.forEachIndexed { i, (value, label) ->
                 val on = 1f - kotlin.math.abs(at - i).coerceAtMost(1f)
-                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, role = Role.RadioButton) { onSelect(value) },
+                Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).selectable(value == selected, interactionSource = null, indication = null, role = Role.RadioButton) { onSelect(value) },
                     contentAlignment = Alignment.Center) {
                     Text(label, style = if (value == selected) Type.smallMedium else Type.small, color = lerp(a.muted, a.onInk, on),
                         maxLines = 1, softWrap = false)
