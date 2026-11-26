@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.PowerManager
+import android.telecom.TelecomManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -25,12 +26,16 @@ class AlertListener : NotificationListenerService() {
     /** Text of the last notification seen per key, so silent updates don't count as new messages. */
     private val lastText = HashMap<String, Int>()
     private val ringing = HashSet<String>()
+    /** The last call-diagnostic line per notification key, so a dialer's updates log only when something changes. */
+    private val callShape = HashMap<String, String>()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         val n = sbn.notification
         val engine = engine
-        when (callState(n)) {
+        val state = callState(n)
+        if (state != CallState.INCOMING) noteCallShape(sbn, state)
+        when (state) {
             CallState.INCOMING -> {
                 if (!ringing.add(sbn.key)) return
                 engine.onIncomingCall(sbn.key, sbn.packageName, appLabel(sbn.packageName), caller(n), moment(), sbn.postTime)
@@ -80,6 +85,7 @@ class AlertListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         lastText -= sbn.key
+        callShape -= sbn.key
         if (ringing.remove(sbn.key)) engine.onCallEnded(sbn.key)
         // Only the user's own dismissals count as seen: apps also remove and repost notifications on their own.
         else if (reason == REASON_CLICK || reason == REASON_CANCEL || reason == REASON_CANCEL_ALL) engine.onMessageDismissed(sbn.key)
@@ -100,6 +106,27 @@ class AlertListener : NotificationListenerService() {
         }
         if (n.category == Notification.CATEGORY_CALL) return if (n.fullScreenIntent != null) CallState.INCOMING else CallState.OTHER
         return CallState.NONE
+    }
+
+    /**
+     * Logs what a call-looking notification carried when it wasn't taken as an incoming call, so a dialer AirBuzz misses
+     * can be fixed from a shared log (a OnePlus tester's calls left no trace, 26 Nov). Call-looking: call style, the
+     * call category, or the default phone app. Only technical fields; no caller name or number.
+     */
+    private fun noteCallShape(sbn: StatusBarNotification, state: CallState) {
+        val n = sbn.notification
+        val template = n.extras.getString(Notification.EXTRA_TEMPLATE)?.substringAfterLast('$')
+        val dialer = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
+        if (template != "CallStyle" && n.category != Notification.CATEGORY_CALL && sbn.packageName != dialer) return
+        val callType = if (template == "CallStyle" && Build.VERSION.SDK_INT >= 31) n.extras.getInt(Notification.EXTRA_CALL_TYPE).toString() else "-"
+        val shape = "package ${sbn.packageName}${if (sbn.packageName == dialer) " (default phone app)" else ""}, " +
+            "template ${template ?: "none"}, call type $callType, category ${n.category ?: "none"}, " +
+            "full-screen ${if (n.fullScreenIntent != null) "yes" else "no"}, " +
+            "ongoing ${if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) "yes" else "no"}, " +
+            "foreground service ${if (n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0) "yes" else "no"}"
+        if (callShape.put(sbn.key, shape) == shape) return
+        if (callShape.size > 50) callShape.clear()
+        engine.note("Call-like notification not taken as ringing (${state.name.lowercase()}): $shape")
     }
 
     private fun caller(n: Notification): Caller {
