@@ -149,12 +149,19 @@ fun SettingsScreen(engine: Engine, s: Settings, go: (Screen) -> Unit) {
             } }) else null,
         ))
         Spacer(Modifier.weight(1f))
+        val battery by engine.battery.collectAsStateWithLifecycle()
+        val now = rememberNow()
         Group(listOf({
-            GroupRow {
-                TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
-                    Sub(lastReached(band.lastReachedAt, entries)?.let { "Last buzz ${timeOf(it)}" } ?: "No buzz yet")
+            // The battery takes its own full-width line under the row: beside the Test pill it wouldn't fit at 360 dp.
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TwoLine("Google Fitbit Air", Modifier.weight(1f)) {
+                        Sub(lastReached(band.lastReachedAt, entries)?.let { "Last buzz ${timeOf(it)}" } ?: "No buzz yet")
+                    }
+                    Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
                 }
-                Pill("Test", { go(Screen.TEST) }, filled = false, small = true)
+                Gap(2)
+                BatteryLine(battery, now)
             }
         }))
     }

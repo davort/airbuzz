@@ -1,5 +1,6 @@
 package com.davort.airbuzz.ui
 
+import com.davort.airbuzz.data.BatteryAge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -531,6 +532,8 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
     val tick = rememberResumeTick()
     val now = rememberNow()
     val reached = lastReached(band.lastReachedAt, entries)
+    val battery by engine.battery.collectAsStateWithLifecycle()
+    val batteryAge by engine.batteryAge.collectAsStateWithLifecycle()
     val problem = remember(tick, band.lastError, band.notAnswering, reached, band.lastHeardAt) {
         firstProblem(context, band.lastError, band.notAnswering, reached, band.lastHeardAt)
     }
@@ -548,6 +551,8 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
         band.healthSyncing && live,
         shelfLabel(s.enabled, band.linkOpen, band.lastHeardAt, reached),
         missed,
+        // With a battery reading, "Connected · checked 11:20" shortens to "Connected" so the battery fits on the line.
+        { status -> ShelfLine(if (battery.percent != null && batteryAge.let { it == BatteryAge.FRESH || it == BatteryAge.HOURS }) status.substringBefore(" · ") else status, battery, batteryAge, now) },
         Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
         onFix = { p -> p.fix?.let(fixer) ?: go(Screen.SETUP) },
     ) { go(Screen.SETTINGS) }
@@ -561,7 +566,7 @@ fun BoxScope.ShelfFor(engine: Engine, s: AirSettings, go: (Screen) -> Unit) {
  * syncs with the Air and nothing is wrong, a grey sync icon says buzzes may wait, with no warn colour and no fix.
  */
 @Composable
-fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String, missed: String? = null, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
+fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String, missed: String? = null, line: @Composable (String) -> Unit = { Label(it) }, modifier: Modifier = Modifier, onFix: (Problem) -> Unit, onClick: () -> Unit) {
     val a = LocalAirColors.current
     val shape = RoundedCornerShape(Radius.CARD)
     val swap = tween<Color>(220, easing = Motion.Out)
@@ -620,7 +625,7 @@ fun AirShelf(problem: Problem?, live: Boolean, syncing: Boolean, reached: String
                     // 16 sp lines, as the mono label has, so a problem keeps the shelf's height.
                     if (shown != null && missed != null) Label(missed, color = a.warn)
                     else if (shown != null || sync) Text(shown?.detail ?: "Buzzes may wait up to 6 s", style = Type.small.copy(lineHeight = 16.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)), color = a.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else Label(reached)
+                    else line(reached)
                 }
                 if (shown != null) Pill(shown.action, { onFix(shown) }, small = true) else CurveIcon(Curve.TUNE, 22.dp, a.ink, 1.8f)
             }

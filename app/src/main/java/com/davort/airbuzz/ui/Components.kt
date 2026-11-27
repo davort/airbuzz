@@ -1,5 +1,12 @@
 package com.davort.airbuzz.ui
 
+import com.davort.airbuzz.data.Battery
+import com.davort.airbuzz.data.BatteryAge
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import java.util.Date
+
 import android.content.ContentUris
 import android.graphics.BitmapFactory
 import android.provider.ContactsContract
@@ -771,5 +778,89 @@ fun BuzzStrip(entries: List<Entry>, dayStart: Long, modifier: Modifier = Modifie
                 Label(h)
             }
         }
+    }
+}
+
+/**
+ * The Fitbit Air's battery as a tiny capsule, the pebble's own shape, filled from the left by [percent] (battery design,
+ * Davor, 27 Nov). [fill] is ink normally, accent while charging (with a bolt after it) and warn at 20% or below.
+ */
+@Composable
+fun BatteryGauge(percent: Int, fill: Color, outline: Color = fill, bolt: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.size(18.dp, 9.dp)) {
+            val w = 1.5.dp.toPx()
+            drawRoundRect(outline, Offset(w / 2, w / 2), Size(size.width - w, size.height - w), CornerRadius(size.height / 2), Stroke(w))
+            val inset = w + 1.dp.toPx()
+            val h = size.height - 2 * inset
+            val full = size.width - 2 * inset
+            if (percent > 0) drawRoundRect(fill, Offset(inset, inset), Size((full * percent.coerceAtMost(100) / 100f).coerceAtLeast(h), h), CornerRadius(h / 2))
+        }
+        if (bolt) Canvas(Modifier.padding(start = 2.dp).size(6.dp, 9.dp)) {
+            drawPath(Path().apply {
+                moveTo(size.width * 0.7f, 0f); lineTo(0f, size.height * 0.58f); lineTo(size.width * 0.45f, size.height * 0.58f)
+                lineTo(size.width * 0.3f, size.height); lineTo(size.width, size.height * 0.4f); lineTo(size.width * 0.55f, size.height * 0.4f); close()
+            }, fill)
+        }
+    }
+}
+
+/** Whether a reading counts as low: at [Battery.LOW_AT]% or below and off the charger. */
+fun Battery.low() = percent != null && !charging && percent <= Battery.LOW_AT
+
+/**
+ * The Home shelf's second line. With a reading under 12 h old it adds the battery after [status]: "CONNECTED · ▭ 73%",
+ * with a muted "· 3h ago" from 1 h; charging turns the line accent and low replaces the status with "CHARGE SOON" in
+ * warn. With no reading, or an older one, Home shows only [status]: it never states an old number as fact.
+ */
+@Composable
+fun ShelfLine(status: String, b: Battery, age: BatteryAge, now: Long) {
+    val a = LocalAirColors.current
+    val percent = b.percent
+    if (percent == null || age == BatteryAge.NONE || age == BatteryAge.OLD) { Label(status); return }
+    val low = b.low()
+    val color = when { b.charging -> a.accent; low -> a.warn; else -> a.ink }
+    val muted = when { b.charging -> a.accent; low -> a.warn; else -> a.muted }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) {}) {
+        if (!low) Label(if (b.charging) "Charging ·" else "$status ·", color = muted)
+        BatteryGauge(percent, color, bolt = b.charging)
+        Label("$percent%" + if (low) " · Charge soon" else "", color = color)
+        if (age == BatteryAge.HOURS) Text("· ${((now - b.readAt) / Battery.HOUR_MS).coerceAtLeast(1)}h ago",
+            style = Type.label, color = a.muted, maxLines = 1, softWrap = false)
+    }
+}
+
+/** When a battery reading was taken, as Settings says it: "checked 14 min ago", "checked 09:12", "checked yesterday 22:10". */
+fun checkedAt(at: Long, now: Long): String {
+    val mins = (now - at) / 60_000
+    return "checked\u00A0" + when {
+        mins < 1 -> "just\u00A0now"
+        mins < 60 -> "$mins\u00A0min\u00A0ago"
+        at >= dayStart(now = now) -> timeOf(at)
+        at >= dayStart(1, now) -> "yesterday\u00A0${timeOf(at)}"
+        else -> java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(Date(at)) + "\u00A0" + timeOf(at)
+    }
+}
+
+/**
+ * The battery line in Settings' Fitbit Air row: a reading of any age, always with when it was checked. Before the first
+ * one it says how to get one; a Test buzz reads the battery when there is none (Davor, 27 Nov, option 1 for now).
+ */
+@Composable
+fun BatteryLine(b: Battery, now: Long) {
+    val a = LocalAirColors.current
+    val percent = b.percent ?: return Sub("No battery reading yet · Test checks it")
+    val low = b.low()
+    Row(verticalAlignment = Alignment.Top, modifier = Modifier.semantics(mergeDescendants = true) {}) {
+        if (b.charging) { Sub("Charging ·"); HGap(6) }
+        Box(Modifier.height(20.dp), contentAlignment = Alignment.Center) {
+            BatteryGauge(percent, when { b.charging -> a.accent; low -> a.warn; else -> a.ink }, when { b.charging -> a.accent; low -> a.warn; else -> a.muted }, b.charging)
+        }
+        HGap(6)
+        Text(buildAnnotatedString {
+            if (low) withStyle(SpanStyle(color = a.warn)) { append("$percent% · charge\u00A0soon") } else append("$percent%")
+            append(" · " + checkedAt(b.readAt, now))
+        }, style = Type.small.copy(lineBreak = LineBreak.Paragraph), color = a.muted)
     }
 }
