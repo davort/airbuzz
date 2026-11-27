@@ -452,12 +452,11 @@ class Engine(private val app: Context) {
     // Test buzz and Try
 
     /** One Test buzz with the message pattern, reported step by step on the Test buzz screen. */
-    fun testBuzz(taps: Int = 1, gapsMs: List<Long>? = null) {
+    fun testBuzz(taps: Int = 1) {
         if (testState.value?.result == null && testState.value != null) return
         val started = SystemClock.elapsedRealtime()
         testState.value = TestRun(started)
-        if (gapsMs != null) note("Trying a pattern: $taps taps, ${gapsMs.joinToString(" ms, ")} ms apart")
-        val job = Job(BandCommand.Taps(taps, strength, gapsMs), buzzed = {
+        val job = Job(BandCommand.Taps(taps, strength), buzzed = {
             testState.value = testState.value?.copy(buzzedMs = SystemClock.elapsedRealtime() - started)
         }) { r ->
             testState.value = testState.value?.copy(result = r)
