@@ -40,6 +40,11 @@ class AlertListener : NotificationListenerService() {
      * mode after about 6 s and keep ringing (Davor's phone, 26 Nov).
      */
     private val modeRinging = HashSet<String>()
+    /**
+     * Samsung call-screen notifications whose call was answered, placed or has ended: they stay up through the call
+     * and look the same as while ringing, so they don't ring again until they go away.
+     */
+    private val samsungSpent = HashSet<String>()
     private val summaries = LoneSummaries()
     private val main = Handler(Looper.getMainLooper())
     private val audio: AudioManager? by lazy { getSystemService(AudioManager::class.java) }
@@ -50,6 +55,7 @@ class AlertListener : NotificationListenerService() {
         if (sbn.packageName == packageName) return
         val n = sbn.notification
         val engine = engine
+        if (sbn.packageName == SAMSUNG_CALL_SCREEN && inCall()) samsungSpent += sbn.key
         val state = callState(sbn)
         if (state != CallState.INCOMING) noteCallShape(sbn, state)
         when (state) {
@@ -109,6 +115,7 @@ class AlertListener : NotificationListenerService() {
     }
 
     private fun endRing(key: String, why: String) {
+        if (key.contains("|$SAMSUNG_CALL_SCREEN|")) samsungSpent += key
         ringing -= key
         modeRinging -= key
         engine.onCallEnded(key, why)
@@ -135,6 +142,14 @@ class AlertListener : NotificationListenerService() {
         } else if (was == AudioManager.MODE_RINGTONE) {
             modeRinging.filter { it in ringing }.forEach { endRing(it, ": the phone stopped ringing (${modeName(mode)})") }
             modeRinging.clear()
+        }
+        if (inCall()) {
+            // Samsung's call screen rings without ringtone mode when the ringer is off, so its ring ends when a call is
+            // under way: answered, or placed from the phone.
+            (runCatching { activeNotifications }.getOrNull() ?: emptyArray())
+                .filter { it.packageName == SAMSUNG_CALL_SCREEN }.forEach { sbn ->
+                    if (sbn.key in ringing) endRing(sbn.key, ": a call is under way (${modeName(mode)})") else samsungSpent += sbn.key
+                }
         }
     }
 
@@ -181,6 +196,7 @@ class AlertListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap, reason: Int) {
         lastText -= sbn.key
         callShape -= sbn.key
+        samsungSpent -= sbn.key
         dropped -= sbn.key
         summaries.removed(sbn.key)
         if (sbn.key in ringing) endRing(sbn.key, "")
@@ -200,9 +216,14 @@ class AlertListener : NotificationListenerService() {
         val n = sbn.notification
         val ex = n.extras
         if (ex.getString(Notification.EXTRA_TEMPLATE) == "android.app.Notification\$CallStyle") {
-            return if (Build.VERSION.SDK_INT >= 31 && ex.getInt(Notification.EXTRA_CALL_TYPE) == Notification.CallStyle.CALL_TYPE_INCOMING) {
-                CallState.INCOMING
-            } else CallState.OTHER
+            return when {
+                Build.VERSION.SDK_INT >= 31 && ex.getInt(Notification.EXTRA_CALL_TYPE) == Notification.CallStyle.CALL_TYPE_INCOMING -> CallState.INCOMING
+                // Samsung's call screen posts a ringing call as ongoing (call type 2), and with the ringer off the phone
+                // stays in normal mode (an S25 Ultra tester's log, 27 Nov). Before a call is under way, it is ringing.
+                sbn.packageName == SAMSUNG_CALL_SCREEN && sbn.key !in samsungSpent &&
+                    (audioMode == AudioManager.MODE_NORMAL || audioMode == AudioManager.MODE_RINGTONE) -> CallState.INCOMING
+                else -> CallState.OTHER
+            }
         }
         if (n.category == Notification.CATEGORY_CALL) return when {
             n.fullScreenIntent != null -> CallState.INCOMING
@@ -267,6 +288,8 @@ class AlertListener : NotificationListenerService() {
         val number = uriNumber ?: name?.takeIf(Rules::looksLikeNumber)
         return Caller(name?.takeUnless(Rules::looksLikeNumber), number)
     }
+
+    private fun inCall() = audioMode == AudioManager.MODE_IN_CALL || audioMode == AudioManager.MODE_IN_COMMUNICATION
 
     private fun isPhoneApp(pkg: String) = pkg in CALL_SCREENS || pkg == defaultDialer()
 
@@ -348,7 +371,8 @@ class AlertListener : NotificationListenerService() {
 
     private companion object {
         /** System call screens that post the ringing notification for the built-in phone app. */
-        val CALL_SCREENS = setOf("com.android.incallui", "com.android.server.telecom")
+        const val SAMSUNG_CALL_SCREEN = "com.samsung.android.incallui"
+        val CALL_SCREENS = setOf("com.android.incallui", "com.android.server.telecom", SAMSUNG_CALL_SCREEN)
         /** How long a lone group summary waits for a message of its group before it counts as one. */
         const val SUMMARY_WAIT_MS = 2_000L
     }
