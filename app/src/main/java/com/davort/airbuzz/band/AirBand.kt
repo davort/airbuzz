@@ -138,6 +138,17 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         const val HEARD_EVERY_MS = 60_000L
         /** While Google Health syncs, [SyncWatch] is checked this often, because a sync ends with no packet to say so. */
         const val SYNC_CHECK_MS = 2_000L
+        /**
+         * A tracker write Android declines because its Bluetooth queue is busy is tried again this often, this many
+         * times; before, the packet waited for the next one Golden Gate sent (fitbit-air's idea, our own code).
+         */
+        const val WRITE_RETRY_MS = 25L
+        const val WRITE_RETRIES = 20
+        /** How long the link-status read may take before what it has is logged. */
+        const val STATUS_TIMEOUT_MS = 1_500L
+        /** BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY, and what AirBuzz records when Android gives no status. */
+        const val WRITE_BUSY = 201
+        const val WRITE_UNKNOWN = -1
     }
 
     /** Refuses every PSK, so the band's next handshake fails and it resets its Gattlink session. */
@@ -184,6 +195,19 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private var silenceCheck: Runnable? = null
     private val txQueue = ArrayDeque<ByteArray>()
     private var writeInFlight = false
+    /** Tracker packets Android accepted, and writes it declined with their statuses, in this command, for its steps line. */
+    private var txWritten = 0
+    private val txDeclined = ArrayList<Int>()
+    /** Declined writes in a row; the same packet is tried again every [WRITE_RETRY_MS], [WRITE_RETRIES] times. */
+    private var writeRetries = 0
+    private val writeRetry = Runnable { writeNext() }
+    /** Set while the Air's services are found again after it said they changed. */
+    private var rediscovering = false
+    /** A link-status read in progress ([readLinkStatus]): why, what to do after, and the first half's result. */
+    private var statusReason: String? = null
+    private var statusThen: (() -> Unit)? = null
+    private var statusConfig: String? = null
+    private val statusTimeout = Runnable { linkStatusDone("no answer in ${STATUS_TIMEOUT_MS} ms") }
     private var txSink: TxSink? = null
     private var rxSource: RxSource? = null
     private var stack: Stack? = null
@@ -269,15 +293,20 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     // On 13 Nov subscribing again didn't end two deaf spells; a connection of AirBuzz's own is the
                     // next thing to try. Only AirBuzz's client closes, so Google Health's link to the Air stays up.
                     log("Open link: still heard nothing ${(now - resubscribedAt) / 60_000} min after subscribing again; connecting afresh")
-                    closeTransport()
-                    warmDelay = WARM_RETRY_MS
-                    warmUp()
+                    readLinkStatus(g, "still deaf") {
+                        if (!busy) {
+                            closeTransport()
+                            warmDelay = WARM_RETRY_MS
+                            warmUp()
+                        }
+                    }
                     return
                 }
                 log("Open link: heard nothing for ${quietFor / 60_000} min; subscribing again")
                 lastRxAt = now
                 resubscribedAt = now
-                if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel again.")
+                // Read first: Android runs one Bluetooth request at a time, and the subscription is one.
+                readLinkStatus(g, "deaf") { if (!busy && !subscribe(g)) linkFailed("Could not subscribe to the tracker channel again.") }
             }
             main.postDelayed(this, DEAF_CHECK_MS)
         }
@@ -330,11 +359,13 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         handshakeAttempts = 0
         sessionStarted = false
         quietPackets = 0
+        txWritten = 0
+        txDeclined.clear()
         duringSync = syncWatch.syncing
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
         main.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS)
         val open = gatt
-        if (keepLinkOpen && open != null && linkUp && !warming && SystemClock.elapsedRealtime() - linkReadyAt >= SETTLE_MS) {
+        if (keepLinkOpen && open != null && linkUp && !warming && !rediscovering && SystemClock.elapsedRealtime() - linkReadyAt >= SETTLE_MS) {
             usedOpenLink = true
             log("Using the open link")
             // On the open link the fast-link request goes out at once (test app 0.4: no lost races from it).
@@ -398,9 +429,66 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     }
 
     private fun connectFresh(device: BluetoothDevice) {
-        log("Connecting to ${device.name}")
+        // Whether any app's link to the Air is up, such as Google Health's, as Android sees it before ours opens.
+        log("Connecting to ${device.name} (Android: ${androidLinkState(device)})")
         val g = device.connectGatt(context, false, callback, TRANSPORT_LE)
         if (g == null) fail("Android did not create a Bluetooth connection.") else gatt = g
+    }
+
+    private fun androidLinkState(device: BluetoothDevice): String = try {
+        when (context.getSystemService(BluetoothManager::class.java)?.getConnectionState(device, BluetoothProfile.GATT)) {
+            BluetoothProfile.STATE_CONNECTED -> "connected"
+            BluetoothProfile.STATE_CONNECTING -> "connecting"
+            BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+            BluetoothProfile.STATE_DISCONNECTED -> "not connected"
+            else -> "unknown"
+        }
+    } catch (_: SecurityException) {
+        "unknown"
+    }
+
+    /**
+     * Reads the Air's link configuration and status ([AirLinkStatus]) and logs them in one line, then runs [then].
+     * Tracker writes wait meanwhile, because Android runs one Bluetooth request at a time. Read only for the step log.
+     */
+    private fun readLinkStatus(g: BluetoothGatt, reason: String, then: () -> Unit) {
+        if (statusReason != null) return then()
+        val c = g.getService(AirLinkStatus.SERVICE)?.getCharacteristic(AirLinkStatus.CONFIGURATION)
+        if (c == null) {
+            log("Link status ($reason): the Fitbit Air offers no link-status service")
+            return then()
+        }
+        statusReason = reason
+        statusThen = then
+        statusConfig = null
+        main.postDelayed(statusTimeout, STATUS_TIMEOUT_MS)
+        if (!g.readCharacteristic(c)) linkStatusDone("not read: Android declined the read")
+    }
+
+    private fun onLinkStatusRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+        if (statusReason == null) return
+        val text = when {
+            status != BluetoothGatt.GATT_SUCCESS -> "unreadable (status $status)"
+            c.uuid == AirLinkStatus.CONFIGURATION -> AirLinkStatus.configuration(value)
+            else -> AirLinkStatus.status(value)
+        }
+        if (c.uuid != AirLinkStatus.CONFIGURATION) return linkStatusDone(text)
+        statusConfig = text
+        val next = g.getService(AirLinkStatus.SERVICE)?.getCharacteristic(AirLinkStatus.STATUS)
+        if (next == null || !g.readCharacteristic(next)) linkStatusDone("not read")
+    }
+
+    private fun linkStatusDone(statusText: String) {
+        val reason = statusReason ?: return
+        val then = statusThen
+        main.removeCallbacks(statusTimeout)
+        log("Link status ($reason): Android ${gatt?.device?.let(::androidLinkState) ?: "unknown"}; " +
+            "configuration ${statusConfig ?: "not read"}; status $statusText")
+        statusReason = null
+        statusThen = null
+        statusConfig = null
+        writeNext()
+        then?.invoke()
     }
 
     /** The open link stopped working before any command reached the Air, so the command continues on a new connection. */
@@ -472,6 +560,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     log("The link is open")
                     onLink(true)
                     logBattery(linkReadyAt)
+                } else if (rediscovering) {
+                    rediscovering = false
+                    log("Open link: subscribed again after the services changed")
                 } else if (resubscribedAt != 0L) {
                     log("Open link: subscribed again")
                 }
@@ -485,6 +576,30 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) = onMain(g) {
             writeInFlight = false
             if (status != BluetoothGatt.GATT_SUCCESS) fail("Tracker write failed (status $status).") else writeNext()
+        }
+
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) =
+            onMain(g) { onLinkStatusRead(g, c, value, status) }
+
+        @Deprecated("Used below API 33")
+        override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+            if (Build.VERSION.SDK_INT >= 33) return
+            @Suppress("DEPRECATION")
+            val value = c.value?.copyOf() ?: ByteArray(0)
+            onMain(g) { onLinkStatusRead(g, c, value, status) }
+        }
+
+        /** The Air says its services changed (Android 12 and later), so the handles AirBuzz holds may be stale. */
+        override fun onServiceChanged(g: BluetoothGatt) = onMain(g) {
+            log("The Fitbit Air says its services changed; finding them again")
+            if (busy) {
+                // The session's handles may be gone, so skip the hand-off as on a dead link.
+                sessionStarted = false
+                fail("Your Fitbit Air changed its Bluetooth services. Try again in a moment.")
+            }
+            if (gatt !== g) return@onMain
+            rediscovering = true
+            if (!g.discoverServices()) linkFailed("Could not find the Fitbit Air’s services again.")
         }
 
         override fun onReadRemoteRssi(g: BluetoothGatt, rssi: Int, status: Int) = onMain(g) {
@@ -565,22 +680,41 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private fun writeNext() {
         val g = gatt ?: return
         val c = txCharacteristic ?: return
-        if (writeInFlight) return
+        if (writeInFlight || statusReason != null) return
+        main.removeCallbacks(writeRetry)
         val packet = txQueue.pollFirst() ?: return
         writeInFlight = true
-        val ok = if (Build.VERSION.SDK_INT >= 33) {
-            g.writeCharacteristic(c, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothGatt.GATT_SUCCESS
+        val status = if (Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(c, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
         } else {
             @Suppress("DEPRECATION")
             c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             @Suppress("DEPRECATION")
             c.value = packet
             @Suppress("DEPRECATION")
-            g.writeCharacteristic(c)
+            if (g.writeCharacteristic(c)) BluetoothGatt.GATT_SUCCESS else WRITE_UNKNOWN
         }
-        if (!ok) {
-            writeInFlight = false
-            txQueue.addFirst(packet)
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            txWritten++
+            writeRetries = 0
+            return
+        }
+        writeInFlight = false
+        txQueue.addFirst(packet)
+        txDeclined.add(status)
+        // Busy (201) or unknown: Android's Bluetooth queue is full for a moment, so the same packet goes again soon.
+        if ((status == WRITE_BUSY || status == WRITE_UNKNOWN) && writeRetries < WRITE_RETRIES) {
+            writeRetries++
+            main.postDelayed(writeRetry, WRITE_RETRY_MS)
+            return
+        }
+        val retries = writeRetries
+        writeRetries = 0
+        log("Tracker write declined (status $status${if (retries > 0) " after $retries retries" else ""})")
+        // Still busy after the retries: the packet waits for the next write, as before. Any other status won't change.
+        if (status != WRITE_BUSY && status != WRITE_UNKNOWN) {
+            txQueue.clear()
+            if (busy) fail("Android declined a Bluetooth write (status $status).")
         }
     }
 
@@ -653,7 +787,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 // Android stopped routing notifications to this client, so try a connection of its own; silence there,
                 // before the Air has said anything in this command, means it isn't answering at all.
                 if (onOpenLink) reconnectFresh(g.device, "nothing received")
-                else if (!heardBand) { bandSilent = true; fail("Your Fitbit Air didn’t answer. Try again in a moment.") }
+                else if (!heardBand) {
+                    bandSilent = true
+                    val message = "Your Fitbit Air didn’t answer. Try again in a moment."
+                    // Once per silent spell, read whether the radio link itself still works before the link closes.
+                    if (silentSince == 0L) readLinkStatus(g, "not answering") { fail(message) } else fail(message)
+                }
             }.also { main.postDelayed(it, if (onOpenLink) OPEN_LINK_SILENCE_MS else BAND_SILENCE_MS) }
             log("Starting the secure session (attempt $handshakeAttempts)")
             s.start()
@@ -851,6 +990,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         append(phases.entries.joinToString(", ") { "${it.key} ${it.value} ms" }.ifEmpty { "none" })
         append("; $handshakeAttempts handshake${if (handshakeAttempts == 1) "" else "s"}, $wrongKeys wrong key${if (wrongKeys == 1) "" else "s"}, ")
         append("$lostRaces lost race${if (lostRaces == 1) "" else "s"}; $quietPackets packets heard while waiting for quiet")
+        append("; $txWritten packets written")
+        if (txDeclined.isNotEmpty()) append(", ${txDeclined.size} declined (status ${txDeclined.distinct().joinToString("/")})")
         if (duringSync) append("; started during a Google Health sync")
         append("; ${openFiles()} files open")
     }
@@ -891,6 +1032,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         txSink?.close(); txSink = null
         txQueue.clear()
         writeInFlight = false
+        main.removeCallbacks(writeRetry)
+        writeRetries = 0
     }
 
     /** Ends the command but keeps the listen-only client connected and subscribed for the next one. */
@@ -921,6 +1064,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         silenceCheck?.let(main::removeCallbacks)
         silenceCheck = null
         quietWait = null
+        // A link-status read in progress ends with the link, without its follow-up.
+        main.removeCallbacks(statusTimeout)
+        statusReason = null
+        statusThen = null
+        statusConfig = null
+        rediscovering = false
         disposeSession()
         val g = gatt
         gatt = null
