@@ -43,8 +43,11 @@ import java.util.concurrent.TimeUnit
 sealed interface BandCommand {
     val strength: Int
 
-    /** [count] taps about [GAP_MS] apart, for a message. */
-    data class Taps(val count: Int, override val strength: Int) : BandCommand
+    /**
+     * [count] taps about [GAP_MS] apart, for a message. With [gapsMs], tap i+1 starts gapsMs[i] after tap i started
+     * (at least the time the Air takes to answer), so a rhythm can be tried (pattern test build, 27 Nov).
+     */
+    data class Taps(val count: Int, override val strength: Int, val gapsMs: List<Long>? = null) : BandCommand
 
     /** A tap every [intervalMs] until [AirBand.stopRing] or [maxMs], for a call. */
     data class Ring(override val strength: Int, val intervalMs: Long = 1_000, val maxMs: Long = 60_000) : BandCommand
@@ -724,7 +727,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                     onBuzz?.invoke()
                 }
                 val gap = when (cmd) {
-                    is BandCommand.Taps -> BandCommand.GAP_MS
+                    is BandCommand.Taps -> cmd.gapsMs?.getOrNull(index)?.let { (it - (SystemClock.elapsedRealtime() - tapStart)).coerceAtLeast(0) }
+                        ?: BandCommand.GAP_MS
                     is BandCommand.Ring -> (cmd.intervalMs - (SystemClock.elapsedRealtime() - tapStart)).coerceAtLeast(0)
                 }
                 main.postDelayed({ nextTap(ep, index + 1) }, if (cmd is BandCommand.Taps && index + 1 >= cmd.count) 0 else gap)

@@ -700,6 +700,33 @@ fun AppsSheet(engine: Engine, s: Settings, onClose: () -> Unit, openChats: (Stri
 fun PatternSheet(engine: Engine, s: Settings, onClose: () -> Unit) {
     Sheet("Pattern for messages", onClose) {
         PatternBody(s.messageTaps, { n -> engine.store.update { it.copy(messageTaps = n) } }) { n -> engine.testBuzz(n) }
+        TrialPatterns { gaps -> engine.testBuzz(gaps.size + 1, gaps) }
+    }
+}
+
+/**
+ * Temporary, for the pattern test build (Davor, 27 Nov): rhythms to try on the wrist before patterns per app or
+ * chat are designed. Gaps are from the start of one tap to the start of the next. Remove once Davor has chosen.
+ */
+private val TRIALS = listOf(
+    "A · Two quick" to listOf(300L),
+    "B · Two slow" to listOf(1_000L),
+    "C · Three quick" to listOf(300L, 300L),
+    "D · Three slow" to listOf(1_000L, 1_000L),
+    "E · Two quick, then one" to listOf(300L, 1_000L),
+)
+
+@Composable
+private fun TrialPatterns(onTry: (List<Long>) -> Unit) {
+    val a = LocalAirColors.current
+    Text("Test build: rhythms to compare", style = Type.small, color = a.muted, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+    Column {
+        TRIALS.forEachIndexed { i, (name, gaps) ->
+            LineRow(i == 0, onClick = { onTry(gaps) }) {
+                Text(name, style = Type.bodyMedium, color = a.ink, modifier = Modifier.weight(1f))
+                Pill("Try", { onTry(gaps) }, filled = false, small = true)
+            }
+        }
     }
 }
 
