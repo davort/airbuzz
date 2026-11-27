@@ -20,6 +20,10 @@ import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
 import com.davort.airbuzz.band.AirBand
+import com.davort.airbuzz.band.AirBattery
+import com.davort.airbuzz.data.Battery
+import com.davort.airbuzz.data.BatteryAge
+import com.davort.airbuzz.data.BatteryStore
 import com.davort.airbuzz.band.AirHaptics
 import com.davort.airbuzz.band.BandCommand
 import com.davort.airbuzz.band.BandResult
@@ -61,6 +65,15 @@ class AirBuzzApp : Application() {
         Notifications.createChannels(this)
         engine = Engine(this)
         engine.note(startLine())
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: android.app.Activity) = engine.onAppOpened()
+            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
+            override fun onActivityStarted(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivityStopped(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
     }
 
     /**
@@ -173,6 +186,12 @@ class Engine(private val app: Context) {
     var chatsOnPhone: (String) -> List<ChatOption> = { emptyList() }
     /** AirBuzz's own step log, shared from Settings. */
     val debug = DebugLog(java.io.File(app.filesDir, "debug.log"))
+    private val batteryStore = BatteryStore(app)
+    /** The Fitbit Air's last battery reading, kept across restarts. */
+    val battery: StateFlow<Battery> = batteryStore.battery
+    private val batteryAgeState = MutableStateFlow(BatteryAge.NONE)
+    /** How old [battery] is; changes as the reading crosses 1 h and 12 h, so Home can follow it. */
+    val batteryAge: StateFlow<BatteryAge> = batteryAgeState
     private val main = Handler(Looper.getMainLooper())
     private val band = AirBand(app) { line -> note(line); testLine(line) }.also {
         it.onPhase = { testPhases() }
@@ -184,6 +203,8 @@ class Engine(private val app: Context) {
         it.onHeardAgain = { onHeardAgain() }
         it.onHeard = { heard() }
         it.onDeaf = { deaf() }
+        it.wantBattery = { batteryStore.value.due(System.currentTimeMillis(), BATTERY_IN_BUZZ_MS) }
+        it.onBattery = ::onBatteryReading
     }
 
     private val bandState = MutableStateFlow(BandState())
@@ -513,6 +534,13 @@ class Engine(private val app: Context) {
             job.buzzed()
         }) { r ->
             running = null
+            // A battery-only read never retries and never shows a problem: the next buzz or opening tries again.
+            if (job.cmd == BandCommand.Battery) {
+                bandState.value = bandState.value.copy(busy = false)
+                job.done(r)
+                main.post { pump() }
+                return@run
+            }
             val failed = !r.ok && r.taps == 0
             // A buzz that lost the Air to Google Health is tried again a little later rather than dropped, for up to
             // 30 s for a message, unless the message was seen on the phone meanwhile (Davor left the choice to the app
@@ -574,6 +602,39 @@ class Engine(private val app: Context) {
             if (message && waiting.any { it.alertKey != null }) retryMessagesIn(wait)
             main.post { pump() }
         }
+    }
+
+    // The Fitbit Air's battery (Davor, 27 Nov): read inside a buzz's session when the last reading is over
+    // [BATTERY_IN_BUZZ_MS] old, and on its own when AirBuzz is opened and the reading is over an hour old.
+
+    private fun onBatteryReading(r: AirBattery.Reading) {
+        val (b, alert) = batteryStore.value.after(r, System.currentTimeMillis())
+        batteryStore.set(b)
+        note("Fitbit Air battery: ${r.percent}%" + (if (r.onCharger == true) ", on its charger" else "") +
+            (r.millivolts?.let { ", $it mV" } ?: ""))
+        if (alert) Notifications.showLowBattery(app, r.percent)
+        if (b.charging) Notifications.cancelLowBattery(app)
+        followBatteryAge()
+    }
+
+    private val batteryAgeTick = Runnable { followBatteryAge() }
+
+    private fun followBatteryAge() {
+        main.removeCallbacks(batteryAgeTick)
+        val now = System.currentTimeMillis()
+        val b = batteryStore.value
+        batteryAgeState.value = b.age(now)
+        b.nextAgeChange(now)?.let { main.postDelayed(batteryAgeTick, it - now + 1_000) }
+    }
+
+    /** AirBuzz came to the front: an hour-old reading is read again unless the band is busy or Google Health syncs. */
+    fun onAppOpened() {
+        followBatteryAge()
+        if (!settings.enabled || !batteryStore.value.due(System.currentTimeMillis(), Battery.HOUR_MS)) return
+        if (bandState.value.healthSyncing || running != null || queue.isNotEmpty() || waiting.isNotEmpty()) return
+        note("Reading the Fitbit Air's battery: AirBuzz was opened")
+        queue.addLast(Job(BandCommand.Battery) {})
+        pump()
     }
 
     /** Puts a waiting call or Test buzz [job] back in the queue. */
@@ -885,6 +946,8 @@ class Engine(private val app: Context) {
         const val RING_RETRY_FOR_MS = 60_000L
         /** How soon after a ring ends a new notification for the same call counts as that call shown again. */
         const val CALL_REPOST_MS = 3_000L
+        /** A buzz also reads the battery when the last reading is this old. */
+        const val BATTERY_IN_BUZZ_MS = 45 * 60_000L
         /** How soon after a call's notification goes a missed-call notification still belongs to it. */
         const val MISSED_AFTER_MS = 15_000L
         /**

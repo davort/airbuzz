@@ -35,6 +35,8 @@ object Notifications {
     private const val MISSED_ID = 5
     private const val PROBLEMS_CHANNEL = "problems"
     private const val MISSED_CHANNEL = "missed"
+    private const val BATTERY_ID = 6
+    private const val BATTERY_CHANNEL = "battery"
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -48,6 +50,10 @@ object Notifications {
         })
         nm.createNotificationChannel(NotificationChannel(MISSED_CHANNEL, "Missed alerts", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "A call or message didn’t reach your Fitbit Air, with why and the fix."
+        })
+        // Silent: the band warns about its own battery too (Davor, 27 Nov).
+        nm.createNotificationChannel(NotificationChannel(BATTERY_CHANNEL, "Fitbit Air battery", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Your Fitbit Air’s battery is low. Silent."
         })
     }
 
@@ -108,6 +114,21 @@ object Notifications {
         } catch (_: SecurityException) {
             // Notifications not allowed; the Air shelf still shows the problem.
         }
+    }
+
+    /** Sent once when the band reads 20% or below; again only after it has been seen charging. */
+    fun showLowBattery(context: Context, percent: Int) {
+        val n = builder(context, BATTERY_CHANNEL, "Your Fitbit Air is at $percent%", "Charge it soon so calls keep ringing it.",
+            null, Intent())
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setAutoCancel(true)
+            .build()
+        notify(context, BATTERY_ID, n)
+    }
+
+    fun cancelLowBattery(context: Context) {
+        context.getSystemService(NotificationManager::class.java).cancel(BATTERY_ID)
     }
 
     fun showRinging(context: Context, who: String) {

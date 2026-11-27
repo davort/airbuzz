@@ -49,6 +49,9 @@ sealed interface BandCommand {
     /** A tap every [intervalMs] until [AirBand.stopRing] or [maxMs], for a call. */
     data class Ring(override val strength: Int, val intervalMs: Long = 1_000, val maxMs: Long = 60_000) : BandCommand
 
+    /** Only reads the Air's battery, with no buzz: when AirBuzz is opened and the last reading is old. */
+    data object Battery : BandCommand { override val strength = 0 }
+
     companion object {
         const val GAP_MS = 600L
     }
@@ -292,6 +295,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // A failure here is reported by the first buzz, which calls init again.
         runCatching { GoldenGate.init() }
     }
+
+    /** Whether a buzz should also read the battery before it hands the channel back; asked once per buzz. */
+    var wantBattery: () -> Boolean = { false }
+    /** Called on the main thread with each battery reading. */
+    var onBattery: (AirBattery.Reading) -> Unit = {}
 
     fun findBondedAir(): BluetoothDevice? {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return null
@@ -694,6 +702,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // Google Health win the handshake race (fitbit-air's finding).
         if (!linkBoosted) linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
         if (stopRequested) return succeed("Stopped before the first buzz.")
+        if (command is BandCommand.Battery) return readBattery(ep) { ok -> if (ok) succeed("Read the battery.") else fail("Couldn’t read the battery.") }
         val cached = prefs.getInt(STRENGTH_KEY, 0).takeIf { it == AirHaptics.LOW || it == AirHaptics.HIGH }
         val current: Single<Int> = if (cached != null) Single.just(cached) else readStrength(ep)
         disposables.add(current.subscribe(
@@ -710,6 +719,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val more = when (cmd) {
             is BandCommand.Taps -> index < cmd.count
             is BandCommand.Ring -> !stopRequested && elapsed < cmd.maxMs
+            BandCommand.Battery -> false
         }
         if (!more) return verifyAndFinish(ep)
         val tapStart = SystemClock.elapsedRealtime()
@@ -726,6 +736,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 val gap = when (cmd) {
                     is BandCommand.Taps -> BandCommand.GAP_MS
                     is BandCommand.Ring -> (cmd.intervalMs - (SystemClock.elapsedRealtime() - tapStart)).coerceAtLeast(0)
+                    BandCommand.Battery -> 0L
                 }
                 main.postDelayed({ nextTap(ep, index + 1) }, if (cmd is BandCommand.Taps && index + 1 >= cmd.count) 0 else gap)
             }
@@ -741,8 +752,33 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 Single.error<Int>(IllegalStateException("Strength read back as $after; restored $expected."))
             }
         }.subscribe(
-            { s -> main.post { prefs.edit().putInt(STRENGTH_KEY, s).apply(); succeed("Buzzed $taps time${if (taps == 1) "" else "s"}.") } },
+            { s ->
+                main.post {
+                    prefs.edit().putInt(STRENGTH_KEY, s).apply()
+                    val buzzed = "Buzzed $taps time${if (taps == 1) "" else "s"}."
+                    if (wantBattery()) readBattery(ep) { succeed(buzzed) } else succeed(buzzed)
+                }
+            },
             { e -> main.post { fail(e.message ?: "Strength check failed.") } },
+        ))
+    }
+
+    /**
+     * Reads the battery in the session already open, before the hand-off (Davor, 27 Nov), so it costs no connection of
+     * its own. A failed read is logged and never fails the buzz; [then] gets whether it worked.
+     */
+    private fun readBattery(ep: CoapEndpoint, then: (Boolean) -> Unit) {
+        mark("battery")
+        val request = OutgoingRequestBuilder(AirBattery.PATH, Method.GET).expectSuccess(false).forceNonBlockwise(true)
+            .maxResendCount(0).build()
+        disposables.add(ep.responseFor(request).timeout(REQUEST_TIMEOUT_S, TimeUnit.SECONDS).flatMap { response ->
+            response.body.asData().map { body ->
+                if (response.responseCode.responseClass.toInt() != 2) throw IllegalStateException("rejected (${response.responseCode})")
+                AirBattery.decode(body) ?: throw IllegalStateException("unreadable reply of ${body.size} bytes")
+            }
+        }.subscribe(
+            { r -> main.post { onBattery(r); then(true) } },
+            { e -> main.post { log("Battery read failed: ${e.message}"); then(false) } },
         ))
     }
 
