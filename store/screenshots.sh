@@ -68,6 +68,11 @@ settings() { # $1 = LIGHT or DARK
   printf '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>\n<map>\n<string name="v1">%s</string>\n</map>\n' "$json" > "$tmp/settings.xml"
 }
 
+battery() { # a 73% reading from 14 min ago, so Home and Settings show the battery
+  local at=$(( $(date +%s) * 1000 - 14 * 60000 ))
+  printf '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>\n<map>\n<int name="percent" value="73" />\n<boolean name="charging" value="false" />\n<long name="readAt" value="%s" />\n<boolean name="lowAlertSent" value="false" />\n</map>\n' "$at" > "$tmp/battery.xml"
+}
+
 put() { # file in $tmp, path inside the app's data
   "${adb[@]}" push "$tmp/$1" "/data/local/tmp/$1" >/dev/null
   "${adb[@]}" shell run-as $pkg cp "/data/local/tmp/$1" "$2"
@@ -84,16 +89,20 @@ shot() { "${adb[@]}" exec-out screencap -p > "$out/$1"; echo "$out/$1"; }
 for mode in LIGHT DARK; do
   m="$(tr A-Z a-z <<<"$mode")"
   settings $mode
+  battery
   "${adb[@]}" shell am force-stop $pkg
   "${adb[@]}" shell run-as $pkg mkdir -p shared_prefs files
   put settings.xml shared_prefs/settings.xml
+  put battery.xml shared_prefs/battery.xml
   put activity.json files/activity.json
   "${adb[@]}" shell run-as $pkg touch files/store-demo
+  # The notification listener restarts the app at once; stop it again so it reads the files just pushed.
+  "${adb[@]}" shell am force-stop $pkg; sleep 1
   "${adb[@]}" shell am start -n $pkg/.ui.MainActivity >/dev/null
   # The splash and the pebble intro take about 5 s on a cold start.
   sleep 7
   shot "1-home-$m.png"
-  tap "Who can ring"; shot "2-who-can-ring-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
+  tap "People who ring"; shot "2-people-who-ring-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "Apps that buzz"; shot "3-apps-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "When to stay quiet"; shot "4-stay-quiet-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1.2
   tap "3 BUZZED"; tap "All"; shot "5-activity-$m.png"; "${adb[@]}" shell input keyevent BACK; sleep 1

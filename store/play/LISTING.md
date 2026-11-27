@@ -36,12 +36,12 @@ AirBuzz is not made by, endorsed by or affiliated with Google or Fitbit. It uses
 
 ## Phone screenshots
 
-1080 × 1920. The app screens come from `store/screenshots.sh` on an emulator with made-up data; the captions were added on top in the site's serif.
+1080 × 1920, retaken from 0.9.9 on 27 Nov 2026. The app screens come from `store/screenshots.sh` on an emulator with made-up data and a 73% battery reading; the captions are added on top in Google Sans Flex 450 at 74 px, two lines each, with one word in the accent.
 
 | File | Caption |
 | --- | --- |
 | 1-home | When Mum calls, your Fitbit Air rings. |
-| 2-who-can-ring | Pick who can ring. Other calls ring only your phone. (retaken from 0.6.39) |
+| 2-people-who-ring | Pick who rings. Others only ring your phone. |
 | 3-apps | Pick the apps that buzz. The deals and likes don't. |
 | 4-stay-quiet | Quiet at night. Mum still gets through. |
 | 5-activity | See what buzzed, and why the rest didn't. |
