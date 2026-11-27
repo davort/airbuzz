@@ -845,12 +845,12 @@ fun checkedAt(at: Long, now: Long): String {
 
 /**
  * The battery line in Settings' Fitbit Air row: a reading of any age, always with when it was checked. Before the first
- * one it says how to get one; a Test buzz reads the battery when there is none (Davor, 27 Nov, option 1 for now).
+ * one it says when one comes: any buzz, Test included, reads the battery when there is none (Davor, 27 Nov).
  */
 @Composable
 fun BatteryLine(b: Battery, now: Long) {
     val a = LocalAirColors.current
-    val percent = b.percent ?: return Sub("No battery reading yet · Test checks it")
+    val percent = b.percent ?: return Sub("Battery checked at the next buzz")
     val low = b.low()
     Row(verticalAlignment = Alignment.Top, modifier = Modifier.semantics(mergeDescendants = true) {}) {
         if (b.charging) { Sub("Charging ·"); HGap(6) }
