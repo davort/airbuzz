@@ -30,4 +30,14 @@ class DebugLogTest {
         assertEquals(listOf("january"), steps(DebugLog(file) { now }))
         assertEquals(1, file.readLines().count { it.isNotBlank() })
     }
+
+    @Test fun theSharedTextKeepsTheNewestLinesThatFit() {
+        val file = File.createTempFile("debug", ".log").apply { deleteOnExit() }
+        val log = DebugLog(file) { at(2026, 11, 27) }
+        (1..5).forEach { log.add("step $it") }
+        // Each line is an 18-character stamp, two spaces and "step N": 26 characters, with one break between lines.
+        assertEquals(listOf("step 4", "step 5"), log.newest(53).lines().map { it.substringAfter("  ") })
+        assertEquals(listOf("step 5"), log.newest(52).lines().map { it.substringAfter("  ") })
+        assertEquals(log.text(), log.newest(10_000))
+    }
 }

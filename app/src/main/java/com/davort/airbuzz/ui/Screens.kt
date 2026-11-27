@@ -527,14 +527,27 @@ fun StepList(steps: List<Step>, liveMs: Long?) {
     }
 }
 
-/** Shares AirBuzz's own step log with the app version and phone model, for when something didn't buzz. */
+/**
+ * Shares AirBuzz's own step log with the app version and phone model, for when something didn't buzz: the whole log
+ * as a .txt file, and as text the newest lines that fit in 19,000 characters, for apps that take only text (a OnePlus
+ * tester's share arrived cut at 20,000 characters, keeping only the oldest lines, 27 Nov).
+ */
 fun shareLog(context: android.content.Context, engine: Engine) {
     val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-    val text = buildString {
-        appendLine("AirBuzz $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}")
-        appendLine(engine.debug.text())
+    val header = "AirBuzz $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}"
+    val full = engine.debug.text()
+    val newest = engine.debug.newest(19_000)
+    val text = if (newest.length == full.length) "$header\n$full\n" else "$header (newest lines; the whole log is in the file)\n$newest\n"
+    val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    runCatching {
+        val dir = java.io.File(context.cacheDir, "logs").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+        val name = "AirBuzz-$version-${android.os.Build.MANUFACTURER}-${android.os.Build.MODEL}.txt".replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val file = java.io.File(dir, name).apply { writeText("$header\n$full\n") }
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.logs", file)
+        intent.putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.clipData = android.content.ClipData.newUri(context.contentResolver, name, uri)
     }
-    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share log"))
+    context.startActivity(Intent.createChooser(intent, "Share log"))
 }
 
 /**

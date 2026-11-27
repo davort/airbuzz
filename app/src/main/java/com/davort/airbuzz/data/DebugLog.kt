@@ -33,6 +33,19 @@ class DebugLog(private val file: File, private val now: () -> Long = System::cur
         return lines.takeLast(KEEP).joinToString("\n")
     }
 
+    /**
+     * The newest lines that fit in [maxChars] with their line breaks, oldest of them first. Share log sends this as text
+     * alongside the full log as a file: a OnePlus tester's shared text arrived cut at 20,000 characters, which kept only
+     * the oldest lines (27 Nov).
+     */
+    @Synchronized
+    fun newest(maxChars: Int): String {
+        val all = text().lines()
+        var used = -1 // the newest line has no break after it
+        val from = all.indices.reversed().firstOrNull { i -> (used + all[i].length + 1).also { used = it } > maxChars }?.plus(1) ?: 0
+        return all.drop(from).joinToString("\n")
+    }
+
     /** Drops lines from the front until the first is under a week old; a line without a readable time goes too. */
     private fun prune(t: Long): Int {
         var n = 0
