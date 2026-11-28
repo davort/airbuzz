@@ -203,6 +203,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private val writeRetry = Runnable { writeNext() }
     /** Set while the Air's services are found again after it said they changed. */
     private var rediscovering = false
+    /** The open link has logged its link status once while the Air was answering; reset when the link closes. */
+    private var healthyStatusLogged = false
     /** A link-status read in progress ([readLinkStatus]): why, what to do after, and the first half's result. */
     private var statusReason: String? = null
     private var statusThen: (() -> Unit)? = null
@@ -267,7 +269,16 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private val syncWatch = SyncWatch()
     private val syncCheck = object : Runnable {
         override fun run() {
-            if (syncWatch.update(SystemClock.elapsedRealtime())) syncEnded()
+            if (syncWatch.update(SystemClock.elapsedRealtime())) {
+                syncEnded()
+                // Once per link, after a sync it heard in full: the link status of a healthy band, to compare with the
+                // one logged in a silent spell (the review of 28 Nov saw MTU 23 and "slow" there, normal or not unknown).
+                val g = gatt
+                if (!healthyStatusLogged && !busy && linkUp && !warming && g != null) {
+                    healthyStatusLogged = true
+                    readLinkStatus(g, "healthy, after a Google Health sync") {}
+                }
+            }
             else if (syncWatch.syncing) main.postDelayed(this, SYNC_CHECK_MS)
         }
     }
@@ -370,7 +381,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             log("Using the open link")
             // On the open link the fast-link request goes out at once (test app 0.4: no lost races from it).
             linkBoosted = open.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-            if (!subscribe(open)) {
+            if (statusReason != null) {
+                // A link-status read holds Android's one Bluetooth request; subscribe once it is done (at most 1.5 s).
+                val token = startedAt
+                val after = statusThen
+                statusThen = {
+                    after?.invoke()
+                    if (busy && startedAt == token && gatt === open && !subscribe(open)) reconnectFresh(device, "could not refresh the subscription")
+                }
+            } else if (!subscribe(open)) {
                 // Most likely another Bluetooth request still in flight; give it a moment before connecting afresh.
                 val token = startedAt
                 main.postDelayed({
@@ -1070,6 +1089,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         statusThen = null
         statusConfig = null
         rediscovering = false
+        healthyStatusLogged = false
         disposeSession()
         val g = gatt
         gatt = null
