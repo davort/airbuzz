@@ -33,6 +33,7 @@ import com.fitbit.goldengate.bindings.stack.Stack
 import com.fitbit.goldengate.bindings.stack.StackEvent
 import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
+import timber.log.Timber
 import java.io.File
 import java.util.ArrayDeque
 import java.util.Locale
@@ -104,6 +105,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         const val TLS_UNKNOWN_IDENTITY = -10601
         const val TLS_LOST_RACE = -1
         const val HANDOFF_TIMEOUT_MS = 10_000L
+        /** How long after a hand-off its follow-up and Golden Gate's own lines are logged, and how many follow-ups. */
+        const val AFTER_HANDOFF_MS = 90_000L
+        const val AFTER_HANDOFF_LINES = 6
         const val REQUEST_TIMEOUT_S = 3L
         /** The open link is reused only after it has been subscribed this long. */
         const val SETTLE_MS = 3_000L
@@ -148,9 +152,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         const val WRITE_UNKNOWN = -1
     }
 
-    /** Refuses every PSK, so the band's next handshake fails and it resets its Gattlink session. */
-    private object RefusingKeyResolver : TlsKeyResolver() {
-        override fun resolveKey(nodeKey: NodeKey<*>, keyId: ByteArray): ByteArray? = null
+    /** Refuses every PSK, so the band's next handshake fails and it resets its Gattlink session; names each key offered. */
+    private class RefusingKeyResolver(private val offered: (ByteArray) -> Unit) : TlsKeyResolver() {
+        override fun resolveKey(nodeKey: NodeKey<*>, keyId: ByteArray): ByteArray? {
+            offered(keyId.copyOf())
+            return null
+        }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -324,6 +331,18 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Google Health was syncing when the running command started, for its steps line. */
     private var duringSync = false
 
+    // Diagnostics for Google Health's Alarms after a buzz (0.9.12): what happens in each session and hand-off, and
+    // what the band sends first once the channel is back with Google Health.
+    /** What [traceNote] names the running session or hand-off, and when it started; null when nothing is traced. */
+    private var traceLabel: String? = null
+    private var traceStart = 0L
+    private var traceTx = 0
+    private var traceRx = 0
+    /** When the last hand-off ended, while its follow-up lines are wanted; 0 otherwise. */
+    private var handedOffAt = 0L
+    private var afterHandOffLines = 0
+    private val closeGoldenGateLog = Runnable { GoldenGateLog.close() }
+
     init {
         // Start Golden Gate now, while AirBuzz has few files open. Its loop watches one socket with select(), which
         // aborts the process when that socket's number is 1024 or more. Started at the first buzz instead, the socket
@@ -331,6 +350,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // AirBuzz reads every launcher app's name and Android holds their APKs open until the next garbage collection.
         // A failure here is reported by the first buzz, which calls init again.
         runCatching { GoldenGate.init() }
+        if (GoldenGateLog !in Timber.forest()) Timber.plant(GoldenGateLog)
     }
 
     /** Whether a buzz should also read the battery before it hands the channel back; asked once per buzz. */
@@ -370,6 +390,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         txWritten = 0
         txDeclined.clear()
         duringSync = syncWatch.syncing
+        main.removeCallbacks(closeGoldenGateLog)
+        GoldenGateLog.open { line -> main.post { log(line) } }
         // With Bluetooth off Android lists no paired devices, so check it first (Davor's log, 28 Nov).
         if (context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == false) return fail("Bluetooth is off.")
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
@@ -644,6 +666,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
 
     private fun received(packet: ByteArray) {
         val now = SystemClock.elapsedRealtime()
+        traceRx(now, packet)
         recentRx.addLast(now to packet.size)
         while (recentRx.size > 64 || (recentRx.isNotEmpty() && now - recentRx.first().first > 2_000)) recentRx.removeFirst()
         lastRxAt = now
@@ -692,6 +715,10 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private fun openFiles(): Int = File("/proc/self/fd").list()?.size ?: -1
 
     private fun enqueue(packet: ByteArray) {
+        if (traceLabel != null) {
+            traceTx++
+            SessionTrace.control(packet)?.let { traceNote("the phone sent a $it") }
+        }
         txQueue.addLast(packet)
         writeNext()
     }
@@ -776,9 +803,14 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             stack = s
             val ep = CoapEndpoint().also { endpoint = it }
             ep.attach(s)
+            startTrace("Session ${handshakeAttempts + 1}")
+            disposables.add(s.stackEventObservable.subscribe({ event ->
+                main.post { if (endpoint === ep) traceNote(SessionTrace.stackEvent(event)) }
+            }, {}))
             disposables.add(s.dtlsEventObservable.subscribe({ status ->
                 main.post {
                     if (endpoint !== ep) return@post
+                    traceNote(SessionTrace.dtls(status))
                     when {
                         status.state == TlsProtocolState.TLS_STATE_SESSION && !sessionStarted -> onSession(ep)
                         status.state == TlsProtocolState.TLS_STATE_ERROR && status.lastError == TLS_UNKNOWN_IDENTITY -> {
@@ -841,6 +873,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** Drops the failed handshake and starts a fresh stack after [delayMs]. */
     private fun retryHandshake(reason: String, delayMs: Long) {
         mark("handshake $handshakeAttempts failed")
+        endTrace()
         if (handshakeAttempts >= MAX_HANDSHAKE_ATTEMPTS) return fail("Google Health is using your Fitbit Air ($reason).")
         log("Handshake $handshakeAttempts failed: $reason. Retrying in $delayMs ms")
         disposeSession()
@@ -852,6 +885,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
 
     private fun onSession(ep: CoapEndpoint) {
         sessionStarted = true
+        endTrace()
         main.removeCallbacks(connectTimeout)
         mark("session")
         handshakeDeadline?.let(main::removeCallbacks)
@@ -978,8 +1012,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         onBuzz = null
         command = null
         main.removeCallbacks(connectTimeout)
+        endTrace()
         log(if (ok) message else "Failed: $message")
         log(stepsLine())
+        main.removeCallbacks(closeGoldenGateLog)
+        main.postDelayed(closeGoldenGateLog, HANDOFF_TIMEOUT_MS + AFTER_HANDOFF_MS)
         val result = {
             BandResult(ok, message, firstBuzzAt?.let { it - startedAt }, SystemClock.elapsedRealtime() - startedAt,
                 taps, handshakeAttempts, wrongKeys, lostRaces,
@@ -1023,29 +1060,83 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val handOffAt = SystemClock.elapsedRealtime()
         // Set on Golden Gate's thread as soon as the band resets, so nothing of ours follows Google Health's handshake.
         val muted = java.util.concurrent.atomic.AtomicBoolean(false)
+        // Packets Golden Gate wanted to send after the band reset, which AirBuzz held back.
+        val held = java.util.concurrent.atomic.AtomicInteger()
         val complete = { outcome: String ->
             if (!finished) {
                 finished = true
                 muted.set(true)
+                val heldNote = if (held.get() > 0) "; ${held.get()} packets held back after the reset" else ""
+                endTrace(heldNote)
                 log("Handed the channel back to Google Health: $outcome after ${SystemClock.elapsedRealtime() - handOffAt} ms")
+                handedOffAt = SystemClock.elapsedRealtime()
+                afterHandOffLines = 0
                 then()
             }
         }
         main.postDelayed({ complete("timed out") }, HANDOFF_TIMEOUT_MS)
+        startTrace("Hand-off")
         try {
             val tx = TxSink().also { txSink = it }
             val rx = RxSource().also { rxSource = it }
-            disposables.add(tx.dataObservable.subscribe({ p -> if (!muted.get()) main.post { if (txSink === tx && !muted.get()) enqueue(p) } }, {}))
+            disposables.add(tx.dataObservable.subscribe({ p ->
+                if (muted.get()) held.incrementAndGet() else main.post { if (txSink === tx && !muted.get()) enqueue(p) else held.incrementAndGet() }
+            }, {}))
+            val resolver = RefusingKeyResolver { id -> main.post { if (!finished) traceNote("the band offered ${SessionTrace.keyId(id)}; refused") } }
             val s = Stack(BluetoothAddressNodeKey(g.device.address), tx.thisPointer, rx.thisPointer,
-                DtlsSocketNetifGattlink(), false, RefusingKeyResolver)
+                DtlsSocketNetifGattlink(), false, resolver)
             stack = s
             disposables.add(s.stackEventObservable.subscribe({ event ->
-                if (event is StackEvent.GattlinkSessionResent) { muted.set(true); main.post { complete("done") } }
+                if (event is StackEvent.GattlinkSessionResent) muted.set(true)
+                main.post {
+                    if (!finished) traceNote(SessionTrace.stackEvent(event))
+                    if (event is StackEvent.GattlinkSessionResent) complete("done")
+                }
+            }, {}))
+            disposables.add(s.dtlsEventObservable.subscribe({ status ->
+                main.post { if (!finished) traceNote(SessionTrace.dtls(status)) }
             }, {}))
             s.start()
         } catch (t: Throwable) {
             complete("failed: ${t.message}")
         }
+    }
+
+    private fun startTrace(label: String) {
+        endTrace()
+        traceLabel = label
+        traceStart = SystemClock.elapsedRealtime()
+        traceTx = 0
+        traceRx = 0
+        handedOffAt = 0L
+    }
+
+    private fun traceNote(what: String) {
+        val label = traceLabel ?: return
+        log("$label +${SystemClock.elapsedRealtime() - traceStart} ms: $what")
+    }
+
+    private fun endTrace(extra: String = "") {
+        val label = traceLabel ?: return
+        log("$label: $traceTx packets sent, $traceRx received in ${SystemClock.elapsedRealtime() - traceStart} ms$extra")
+        traceLabel = null
+    }
+
+    /** Names the band's control packets while a session or hand-off is traced, and its first packets after a hand-off. */
+    private fun traceRx(now: Long, packet: ByteArray) {
+        if (traceLabel != null) {
+            traceRx++
+            SessionTrace.control(packet)?.let { traceNote("the band sent a $it") }
+            return
+        }
+        if (handedOffAt == 0L) return
+        val control = SessionTrace.control(packet)
+        if (afterHandOffLines == 0 || control != null) {
+            afterHandOffLines++
+            log(String.format(Locale.ROOT, "After the hand-off: %.1f s later the band sent %s",
+                (now - handedOffAt) / 1000.0, SessionTrace.packet(packet)))
+        }
+        if (afterHandOffLines >= AFTER_HANDOFF_LINES || now - handedOffAt > AFTER_HANDOFF_MS) handedOffAt = 0L
     }
 
     private fun disposeSession() {
