@@ -614,6 +614,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             if (busy) {
                 // The session's handles may be gone, so skip the hand-off as on a dead link.
                 sessionStarted = false
+                disposeSession()
                 fail("Your Fitbit Air changed its Bluetooth services. Try again in a moment.")
             }
             if (gatt !== g) return@onMain
@@ -995,7 +996,10 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             // had reported it down just before, and Home showed "Connecting…" while the link was open.
             if (keepLinkOpen && linkUp && gatt != null && !bandSilent) { releaseSession(); onLink(true) } else { closeTransport(); scheduleWarm() }
         }
-        if (sessionStarted && gatt != null) {
+        // Any stack of ours made the band reset its Gattlink session, so hand the channel back even when the handshake
+        // failed or a ring stopped mid-handshake, as fitbit-air does; not on a dead link or a band that said nothing.
+        val ranStack = stack != null && linkUp && !bandSilent
+        if ((sessionStarted || ranStack) && gatt != null) {
             handOff { end(); done(result()) }
         } else {
             end()
@@ -1020,9 +1024,14 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val g = gatt ?: return then()
         disposeSession()
         var finished = false
-        val complete = { _: String ->
+        val handOffAt = SystemClock.elapsedRealtime()
+        // Set on Golden Gate's thread as soon as the band resets, so nothing of ours follows Google Health's handshake.
+        val muted = java.util.concurrent.atomic.AtomicBoolean(false)
+        val complete = { outcome: String ->
             if (!finished) {
                 finished = true
+                muted.set(true)
+                log("Handed the channel back to Google Health: $outcome after ${SystemClock.elapsedRealtime() - handOffAt} ms")
                 then()
             }
         }
@@ -1030,12 +1039,12 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         try {
             val tx = TxSink().also { txSink = it }
             val rx = RxSource().also { rxSource = it }
-            disposables.add(tx.dataObservable.subscribe({ p -> main.post { if (txSink === tx) enqueue(p) } }, {}))
+            disposables.add(tx.dataObservable.subscribe({ p -> if (!muted.get()) main.post { if (txSink === tx && !muted.get()) enqueue(p) } }, {}))
             val s = Stack(BluetoothAddressNodeKey(g.device.address), tx.thisPointer, rx.thisPointer,
                 DtlsSocketNetifGattlink(), false, RefusingKeyResolver)
             stack = s
             disposables.add(s.stackEventObservable.subscribe({ event ->
-                if (event is StackEvent.GattlinkSessionResent) main.post { complete("done") }
+                if (event is StackEvent.GattlinkSessionResent) { muted.set(true); main.post { complete("done") } }
             }, {}))
             s.start()
         } catch (t: Throwable) {
