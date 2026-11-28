@@ -24,6 +24,7 @@ Before you install:
 • Android 9 or later. Not on iPhone: iOS keeps other apps' notifications to itself.
 • Google Health keeps syncing. AirBuzz borrows the band for each buzz, then hands it back.
 • A buzz starts a few seconds after your phone rings, sometimes up to 10.
+• Right after a buzz, Google Health's Alarms and band settings may need a sync before they open. Sync in Google Health, or wait a minute.
 • Nothing is ever uploaded. AirBuzz has no internet access and never stores message text.
 • Free. No ads, no account, no subscription. Open source (GPL-3.0).
 • Want every notification on your wrist? A watch suits you better.

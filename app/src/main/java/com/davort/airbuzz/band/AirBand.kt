@@ -49,9 +49,6 @@ sealed interface BandCommand {
     /** A tap every [intervalMs] until [AirBand.stopRing] or [maxMs], for a call. */
     data class Ring(override val strength: Int, val intervalMs: Long = 1_000, val maxMs: Long = 60_000) : BandCommand
 
-    /** Only reads the Air's battery, with no buzz: when AirBuzz is opened and the last reading is old. */
-    data object Battery : BandCommand { override val strength = 0 }
-
     companion object {
         const val GAP_MS = 600L
     }
@@ -373,6 +370,8 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         txWritten = 0
         txDeclined.clear()
         duringSync = syncWatch.syncing
+        // With Bluetooth off Android lists no paired devices, so check it first (Davor's log, 28 Nov).
+        if (context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == false) return fail("Bluetooth is off.")
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
         main.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS)
         val open = gatt
@@ -861,7 +860,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // Google Health win the handshake race (fitbit-air's finding).
         if (!linkBoosted) linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
         if (stopRequested) return succeed("Stopped before the first buzz.")
-        if (command is BandCommand.Battery) return readBattery(ep) { ok -> if (ok) succeed("Read the battery.") else fail("Couldn’t read the battery.") }
         val cached = prefs.getInt(STRENGTH_KEY, 0).takeIf { it == AirHaptics.LOW || it == AirHaptics.HIGH }
         val current: Single<Int> = if (cached != null) Single.just(cached) else readStrength(ep)
         disposables.add(current.subscribe(
@@ -878,7 +876,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         val more = when (cmd) {
             is BandCommand.Taps -> index < cmd.count
             is BandCommand.Ring -> !stopRequested && elapsed < cmd.maxMs
-            BandCommand.Battery -> false
         }
         if (!more) return verifyAndFinish(ep)
         val tapStart = SystemClock.elapsedRealtime()
@@ -895,7 +892,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 val gap = when (cmd) {
                     is BandCommand.Taps -> BandCommand.GAP_MS
                     is BandCommand.Ring -> (cmd.intervalMs - (SystemClock.elapsedRealtime() - tapStart)).coerceAtLeast(0)
-                    BandCommand.Battery -> 0L
                 }
                 main.postDelayed({ nextTap(ep, index + 1) }, if (cmd is BandCommand.Taps && index + 1 >= cmd.count) 0 else gap)
             }

@@ -534,13 +534,6 @@ class Engine(private val app: Context) {
             job.buzzed()
         }) { r ->
             running = null
-            // A battery-only read never retries and never shows a problem: the next buzz or opening tries again.
-            if (job.cmd == BandCommand.Battery) {
-                bandState.value = bandState.value.copy(busy = false)
-                job.done(r)
-                main.post { pump() }
-                return@run
-            }
             val failed = !r.ok && r.taps == 0
             // A buzz that lost the Air to Google Health is tried again a little later rather than dropped, for up to
             // 30 s for a message, unless the message was seen on the phone meanwhile (Davor left the choice to the app
@@ -627,15 +620,12 @@ class Engine(private val app: Context) {
         b.nextAgeChange(now)?.let { main.postDelayed(batteryAgeTick, it - now + 1_000) }
     }
 
-    /** AirBuzz came to the front: an hour-old reading is read again unless the band is busy or Google Health syncs. */
-    fun onAppOpened() {
-        followBatteryAge()
-        if (!settings.enabled || !batteryStore.value.due(System.currentTimeMillis(), Battery.HOUR_MS)) return
-        if (bandState.value.healthSyncing || running != null || queue.isNotEmpty() || waiting.isNotEmpty()) return
-        note("Reading the Fitbit Air's battery: AirBuzz was opened")
-        queue.addLast(Job(BandCommand.Battery) {})
-        pump()
-    }
+    /**
+     * AirBuzz came to the front: the battery's age is brought up to date. The battery itself is only read during a buzz,
+     * because any secure session leaves Google Health's Alarms and band settings failing until its next sync (seen on a
+     * Pixel and on Davor's OPPO, 28 Nov), and opening AirBuzz shouldn't do that.
+     */
+    fun onAppOpened() = followBatteryAge()
 
     /** Puts a waiting call or Test buzz [job] back in the queue. */
     private fun retryNow(job: Job) {
