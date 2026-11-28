@@ -33,7 +33,6 @@ import com.fitbit.goldengate.bindings.stack.Stack
 import com.fitbit.goldengate.bindings.stack.StackEvent
 import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
-import timber.log.Timber
 import java.io.File
 import java.util.ArrayDeque
 import java.util.Locale
@@ -105,7 +104,11 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         const val TLS_UNKNOWN_IDENTITY = -10601
         const val TLS_LOST_RACE = -1
         const val HANDOFF_TIMEOUT_MS = 10_000L
-        /** How long after a hand-off its follow-up and Golden Gate's own lines are logged, and how many follow-ups. */
+        /** The MTU asked for (Android 14 and later always ask for 517), Bluetooth's default, and how long to wait. */
+        const val MTU_WANTED = 247
+        const val DEFAULT_MTU = 23
+        const val MTU_WAIT_MS = 1_500L
+        /** How long after a hand-off the band's first packets are logged, and how many. */
         const val AFTER_HANDOFF_MS = 90_000L
         const val AFTER_HANDOFF_LINES = 6
         const val REQUEST_TIMEOUT_S = 3L
@@ -187,6 +190,14 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     private val warmRetry = Runnable { warmUp() }
     private var batteryAt = 0L
     private var linkReadyAt = 0L
+    /**
+     * The link's ATT MTU as Android reported it to AirBuzz's client; 0 until known. Each Golden Gate stack is told it,
+     * so a packet fills one Bluetooth write instead of 20-byte pieces: in Davor's logcat of 28 Nov AirBuzz sent its
+     * 160-byte handshake reply as 8 writes while Google Health sent one, and lost the race to answer the band.
+     */
+    private var linkMtu = 0
+    /** Subscribes after asking for the MTU, once, whether Android answers or not. */
+    private var afterMtu: Runnable? = null
     private val recentRx = ArrayDeque<Pair<Long, Int>>()
     private var usedOpenLink = false
     private var fellBack = false
@@ -341,7 +352,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
     /** When the last hand-off ended, while its follow-up lines are wanted; 0 otherwise. */
     private var handedOffAt = 0L
     private var afterHandOffLines = 0
-    private val closeGoldenGateLog = Runnable { GoldenGateLog.close() }
 
     init {
         // Start Golden Gate now, while AirBuzz has few files open. Its loop watches one socket with select(), which
@@ -350,7 +360,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         // AirBuzz reads every launcher app's name and Android holds their APKs open until the next garbage collection.
         // A failure here is reported by the first buzz, which calls init again.
         runCatching { GoldenGate.init() }
-        if (GoldenGateLog !in Timber.forest()) Timber.plant(GoldenGateLog)
     }
 
     /** Whether a buzz should also read the battery before it hands the channel back; asked once per buzz. */
@@ -390,8 +399,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         txWritten = 0
         txDeclined.clear()
         duringSync = syncWatch.syncing
-        main.removeCallbacks(closeGoldenGateLog)
-        GoldenGateLog.open { line -> main.post { log(line) } }
         // With Bluetooth off Android lists no paired devices, so check it first (Davor's log, 28 Nov).
         if (context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == false) return fail("Bluetooth is off.")
         val device = findBondedAir() ?: return fail("No paired Fitbit Air. Pair it in the Google Health app first.")
@@ -584,7 +591,24 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             if (tx == null || rx == null || rx.getDescriptor(CCCD) == null) return@onMain linkFailed("Your Fitbit Air’s tracker channel is missing.")
             txCharacteristic = tx
             rxCharacteristic = rx
-            if (!subscribe(g)) linkFailed("Could not subscribe to the tracker channel.")
+            // Android runs one request at a time, so subscribe once the MTU request has answered, or after MTU_WAIT_MS.
+            // The link's MTU is shared with Google Health's client; on a link it has already set, Android answers with it.
+            val next = Runnable {
+                afterMtu = null
+                if (g == gatt && !subscribe(g)) linkFailed("Could not subscribe to the tracker channel.")
+            }
+            afterMtu?.let(main::removeCallbacks)
+            afterMtu = next
+            if (g.requestMtu(MTU_WANTED)) main.postDelayed(next, MTU_WAIT_MS) else next.run()
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) = onMain(g) {
+            if (status == BluetoothGatt.GATT_SUCCESS && mtu != linkMtu) {
+                linkMtu = mtu
+                log("Link MTU $mtu")
+                stack?.updateMtu(mtu)
+            }
+            afterMtu?.let { main.removeCallbacks(it); it.run() }
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) = onMain(g) {
@@ -847,6 +871,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
             }.also { main.postDelayed(it, if (onOpenLink) OPEN_LINK_SILENCE_MS else BAND_SILENCE_MS) }
             log("Starting the secure session (attempt $handshakeAttempts)")
             s.start()
+            applyMtu(s)
         } catch (e: UnsatisfiedLinkError) {
             fail("Golden Gate native libraries did not load: ${e.message}")
         } catch (t: Throwable) {
@@ -1015,8 +1040,6 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         endTrace()
         log(if (ok) message else "Failed: $message")
         log(stepsLine())
-        main.removeCallbacks(closeGoldenGateLog)
-        main.postDelayed(closeGoldenGateLog, HANDOFF_TIMEOUT_MS + AFTER_HANDOFF_MS)
         val result = {
             BandResult(ok, message, firstBuzzAt?.let { it - startedAt }, SystemClock.elapsedRealtime() - startedAt,
                 taps, handshakeAttempts, wrongKeys, lostRaces,
@@ -1047,6 +1070,7 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         append("; $handshakeAttempts handshake${if (handshakeAttempts == 1) "" else "s"}, $wrongKeys wrong key${if (wrongKeys == 1) "" else "s"}, ")
         append("$lostRaces lost race${if (lostRaces == 1) "" else "s"}; $quietPackets packets heard while waiting for quiet")
         append("; $txWritten packets written")
+        append(if (linkMtu > DEFAULT_MTU) " (MTU $linkMtu)" else " (20-byte pieces, MTU unknown)")
         if (txDeclined.isNotEmpty()) append(", ${txDeclined.size} declined (status ${txDeclined.distinct().joinToString("/")})")
         if (duringSync) append("; started during a Google Health sync")
         append("; ${openFiles()} files open")
@@ -1097,9 +1121,15 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
                 main.post { if (!finished) traceNote(SessionTrace.dtls(status)) }
             }, {}))
             s.start()
+            applyMtu(s)
         } catch (t: Throwable) {
             complete("failed: ${t.message}")
         }
+    }
+
+    /** Tells a started stack the link's MTU; without it Golden Gate writes at most 20 bytes at a time. */
+    private fun applyMtu(s: Stack) {
+        if (linkMtu > DEFAULT_MTU) s.updateMtu(linkMtu)
     }
 
     private fun startTrace(label: String) {
@@ -1194,6 +1224,9 @@ class AirBand(private val context: Context, private val log: (String) -> Unit) {
         linkUp = false
         warming = false
         txCharacteristic = null
+        linkMtu = 0
+        afterMtu?.let(main::removeCallbacks)
+        afterMtu = null
         rxCharacteristic = null
         if (g != null) {
             if (linkBoosted) g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER)

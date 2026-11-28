@@ -2,8 +2,6 @@ package com.davort.airbuzz.band
 
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus
 import com.fitbit.goldengate.bindings.stack.StackEvent
-import timber.log.Timber
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Words for what Golden Gate and the band do during a secure session and the hand-off after it, for the step log.
@@ -61,38 +59,5 @@ object SessionTrace {
         }
         val identity = status.pskIdentity.takeIf { it.isNotEmpty() }?.let { " with ${keyId(it.toByteArray(Charsets.ISO_8859_1))}" } ?: ""
         return "DTLS $state$identity"
-    }
-}
-
-/**
- * Forwards Golden Gate's own log lines, which go to Timber and were dropped until 0.9.12, to the step log while
- * [open], at most [CAP] lines each time. Which lines exist is set on the phone with
- * `adb shell setprop debug.gg.log.config ...`, read when Golden Gate starts.
- */
-object GoldenGateLog : Timber.Tree() {
-    const val CAP = 300
-    @Volatile private var sink: ((String) -> Unit)? = null
-    private val count = AtomicInteger()
-
-    fun open(to: (String) -> Unit) {
-        count.set(0)
-        sink = to
-    }
-
-    fun close() {
-        sink = null
-    }
-
-    override fun isLoggable(tag: String?, priority: Int) = tag == "GoldenGate" && sink != null
-
-    /** Mbed TLS's per-packet lines at FINER, which would fill the cap before the hand-off; its error line stays. */
-    private val noise = listOf("bytes from the transport", "mbedtls wants to", ": returning ", "pending data fully consumed",
-        "transport data", "user data", "transport socket metadata")
-
-    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
-        val to = sink ?: return
-        if (noise.any { it in message }) return
-        val n = count.incrementAndGet()
-        if (n <= CAP) to("Golden Gate: $message") else if (n == CAP + 1) to("Golden Gate: more than $CAP lines, the rest dropped")
     }
 }

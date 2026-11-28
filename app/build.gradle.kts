@@ -26,8 +26,8 @@ android {
         applicationId = "com.davort.airbuzz"
         minSdk = 28
         targetSdk = 36
-        versionCode = 101
-        versionName = "0.9.12"
+        versionCode = 102
+        versionName = "0.9.13"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     signingConfigs {
@@ -59,7 +59,6 @@ tasks.named("preBuild") { dependsOn(syncLicenceAssets) }
 dependencies {
     implementation(project(":goldengate"))
     implementation("io.reactivex.rxjava2:rxjava:2.2.21")
-    implementation("com.jakewharton.timber:timber:4.7.1")
     implementation("com.googlecode.libphonenumber:libphonenumber:8.13.50")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
